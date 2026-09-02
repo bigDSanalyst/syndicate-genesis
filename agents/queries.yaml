@@ -1,4 +1,6 @@
-# Team arXiv subscriptions - syntax: https://info.arxiv.org/help/api/user-manual.html#query_details
+# Team arXiv subscriptions — edit these at any time.
+# Syntax: https://info.arxiv.org/help/api/user-manual.html#query_details
+# Idempotency: re-runs skip papers already anywhere in the repo (arxiv_id frontmatter is the dedup key — never delete it).
 arxiv_subscriptions:
-  - 'cat:quant-ph AND all:"machine learning"'
-  - 'ti:"warp drive" OR ti:"Alcubierre"'
+  - "cat:quant-ph AND all:\"machine learning\"   # demo — replace with your field"
+  - "all:\"your topic here\"   # add one line per standing query"
