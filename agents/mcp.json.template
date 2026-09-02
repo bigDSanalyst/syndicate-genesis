@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "syndicate-vault": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "__VAULT_PATH__"]
+    }
+  }
+}

@@ -1,0 +1,4 @@
+# Team arXiv subscriptions - syntax: https://info.arxiv.org/help/api/user-manual.html#query_details
+arxiv_subscriptions:
+  - 'cat:quant-ph AND all:"machine learning"'
+  - 'ti:"warp drive" OR ti:"Alcubierre"'

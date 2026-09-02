@@ -1,0 +1,50 @@
+name: anchor
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Milestone tag (e.g. v0.1-preprint). Empty = routine weekly anchor."
+        required: false
+      message:
+        description: "Milestone description (required with tag)"
+        required: false
+permissions:
+  contents: write
+concurrency:
+  group: repo-write
+  cancel-in-progress: false
+jobs:
+  anchor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r tools/requirements.txt
+      - name: bot identity
+        run: |
+          git config user.name  "syndicate-anchor[bot]"
+          git config user.email "anchor-bot@users.noreply.github.com"
+      - name: sync with any human pushes
+        run: |
+          git fetch origin "${{ github.ref_name }}"
+          git rebase "origin/${{ github.ref_name }}"
+      - name: upgrade pending stamps
+        run: python tools/anchor.py upgrade
+      - name: anchor
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            python tools/anchor.py milestone --tag "${{ github.event.inputs.tag }}" --message "${{ github.event.inputs.message }}"
+          else
+            python tools/anchor.py run
+          fi
+      - name: commit and push
+        run: |
+          git add ledger/anchors/
+          git diff --cached --quiet || (git commit -m "anchor: state stamp [skip ci]"
+          for i in 1 2 3; do git push origin "HEAD:${{ github.ref_name }}" --follow-tags && exit 0; git fetch origin "${{ github.ref_name }}" && git rebase "origin/${{ github.ref_name }}"; sleep 2; done; exit 1)

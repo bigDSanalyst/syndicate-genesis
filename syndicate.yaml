@@ -1,0 +1,33 @@
+syndicate:
+  name: "CHANGE-ME"
+  formed: "YYYY-MM-DD"
+  oracle_ref: "template"   # replaced by genesis.sig at provisioning
+
+members:   # ONE ROW PER MEMBER, EDIT AT GENESIS
+  - name: "Full Name"
+    github: "github-handle"
+    orcid: "0000-0000-0000-0000"
+    email: "ID+handle@users.noreply.github.com"   # see README: finding your noreply address
+    role: "theory"
+    trust_tier: verified
+    joined: "YYYY-MM-DD"
+
+governance:
+  decision_rule: "majority"
+  objection_window_days: 7
+  review_gates:   # NOTE: gates auto-cap at members-1; a gate higher than that deadlocks
+    "vault/40-drafts/**": 1
+    "ledger/**": 2
+    "agreements/**": 2
+
+attribution:
+  clock: "push-webhook"   # v1 tooling uses committer dates; see attribution.py docstring
+  weights: {churn: 0.35, review: 0.25, prompts: 0.20, breadth: 0.20}
+  exclude_authors_matching:
+    - '\\[bot\\]$'
+    - "ingest-bot@users.noreply.github.com$"
+    - "anchor-bot@users.noreply.github.com$"
+
+exit:
+  default_split: "per-ledger"
+  archive_targets: [arxiv, zenodo]
