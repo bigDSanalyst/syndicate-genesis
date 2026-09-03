@@ -1,0 +1,40 @@
+---
+aliases: ["Approximately Efficient Multidimensional Bilateral Trade"]
+tags: [literature/arxiv, status/triage]
+arxiv_id: "2609.02872"
+url: "http://arxiv.org/abs/2609.02872v1"
+published: "2026-09-02T17:54:13Z"
+ingested: "2026-09-03T11:04:57Z"
+authors:
+  - "Aviad Rubinstein"
+  - "Xizhi Tan"
+  - "Zixin Zhou"
+---
+
+# Approximately Efficient Multidimensional Bilateral Trade
+
+## Abstract
+
+> A central challenge in mechanism design is to develop truthful trade mechanisms that maximize
+> the expected gains-from-trade (GFT) in two-sided markets. Because achieving the full GFT is
+> generally impossible, the literature has focused on constant-factor approximations---a
+> notoriously difficult problem even in simple settings. It was only recently that a breakthrough
+> result by [DMSW22] achieved a constant-factor approximation for single-item bilateral trade. The
+> same guarantee was later extended to single-dimensional matching markets with general downward-
+> closed constraints [BRTW26]. Most existing results, however, are limited to single-dimensional
+> agents. A notable multi-dimensional exception is [CGMZ21]. They considered a market with one
+> constrained-additive buyer and $n$ single-dimensional sellers and provided a mechanism that
+> achieves a $\log^2(n)$ approximation to the second-best GFT, i.e., the maximum expected GFT
+> theoretically achievable by any mechanism satisfying Bayesian Incentive Compatibility (BIC),
+> Interim Individual Rationality (IIR), and ex-ante Weak Budget Balance (WBB). In this paper, we
+> study multi-dimensional bilateral trade problem where both sides of the market are multi-
+> dimensional. We start with one buyer with XOS valuation and one seller with an additive cost
+> function. We then generalize to a market with $n$ XOS buyers and one additive seller. Assuming
+> independent items' values and costs, in both settings we propose simple mechanisms that are BIC,
+> IIR, and ex-ante WBB, while achieving a constant fraction of the optimal (first-best) expected
+> GFT.
+
+---
+## Reading Notes
+*Annotations below. Update the status tag as you triage; the arxiv_id frontmatter must survive edits - it is the dedup key.*
+
