@@ -14,7 +14,7 @@ import re
 import subprocess
 import sys
 import urllib.request
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 
 import yaml
@@ -58,7 +58,7 @@ def main():
     head_tree = set(sh("git", "ls-tree", "-r", "--name-only", "HEAD", cwd=repo).splitlines())
     dates = sh("git", "log", "--pretty=format:%cd", "--date=short", "HEAD", cwd=repo).splitlines()
     start, end = min(dates), max(dates)
-    label = args.label or "{}-W{:02d}".format(*date_from_iso(end).isocalendar()[:2])
+    label = args.label or "{}-W{:02d}".format(*date.fromisoformat(end).isocalendar()[:2])
     churn = {m["email"]: 0.0 for m in members}
     files = {m["email"]: set() for m in members}
     log = sh("git", "log", "--pretty=format:%H|%an|%ae|%cd", "--date=short", "--numstat", "HEAD", cwd=repo)
