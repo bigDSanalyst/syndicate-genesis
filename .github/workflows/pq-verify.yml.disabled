@@ -1,0 +1,30 @@
+# OPTIONAL: PQC implementation verification for syndicates doing post-quantum research.
+# Off by default. Enable by removing the leading dot-underscore or renaming this file
+# to pq-verify.yml, then commit. Requires: build artifacts (a compiled .so) or runs the
+# NIST ACVP suites standalone.
+name: pq-verify
+on:
+  workflow_dispatch:
+    inputs:
+      library:
+        description: "path to compiled .so containing the NTT to audit"
+        required: false
+      symbol:
+        description: "exported NTT symbol (nm -D lib.so | grep -i ntt)"
+        required: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "pq-verify[full]"
+      - name: run verification
+        run: |
+          if [ -n "${{ github.event.inputs.library }}" ]; then
+            pq-verify --audit-so "${{ github.event.inputs.library }}" "${{ github.event.inputs.symbol }}" --fail-on-finding
+          else
+            pq-verify --acvp-all
+          fi
