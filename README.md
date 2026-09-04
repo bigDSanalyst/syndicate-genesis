@@ -43,3 +43,18 @@ proofs. No custody, no platform — the repo is the sole source of truth.
 - Code (`tools/`, `.github/`, `bootstrap.sh`): MIT — see `LICENSE`.
 - Templates and documents (`agreements/`, `README.md`, `vault/_templates/`): CC BY 4.0 — see `LICENSE-CONTENT.md`.
 - Everything a syndicate commits to `vault/`, `ledger/`, or `agreements/EXECUTION-LOG.md` is governed exclusively by that syndicate's executed Consortium Agreement.
+
+## Activation — turning a generated repo into a live syndicate
+
+The template ships with workflows in **manual-dispatch mode only**: a template is the mold,
+not a syndicate, and its schedules must never run. After generating your repo:
+
+1. **Re-enable schedules** in `.github/workflows/ingest-arxiv.yml` and `anchor.yml`
+   (add the `schedule:` block back under `on:`) — or run everything manually via
+   the *Run workflow* button until you trust the cadence.
+2. **Enable branch protection** on `main` (require PR + 1 approval) — do this BEFORE
+   the first signature PR; the template cannot ship this setting.
+3. **Invite members** as collaborators; each edits their `syndicate.yaml` row via PR.
+
+Operator rule #10: *if the template's Actions tab shows scheduled runs, something is
+wrong — generated repos run schedules, templates never do.*
