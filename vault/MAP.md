@@ -55,3 +55,16 @@ Every note carries YAML frontmatter. Required keys by folder:
 
 lowercase-hyphens for notes you create; ingested files keep their
 `arXiv_<id> - <title>.md` shape (law 1 extends to the filename prefix).
+
+## Conventions
+
+- **Supersede, never delete:** when a note's conclusion is replaced, tag the old
+  note `status/superseded` and link the replacing note. The record keeps
+  everything; retrieval demotes stale knowledge. Decayed != deleted.
+- **Staged lessons:** agent-proposed knowledge (summaries, lessons, briefs) is
+  *staged* — `status/staged` — until a member reviews and promotes it. Nothing
+  agent-written becomes trusted instruction without human ratification.
+  Provenance (which agent, which run, which sources) stays attached.
+- **Sentence-level citations:** evidence entries quote the exact sentence from
+  the source, with the anchor (paper ID, commit, or URL) beside it. Nothing is
+  paraphrased into existence; the vault never asks to be taken at its word.

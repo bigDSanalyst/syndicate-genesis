@@ -58,3 +58,33 @@ not a syndicate, and its schedules must never run. After generating your repo:
 
 Operator rule #10: *if the template's Actions tab shows scheduled runs, something is
 wrong — generated repos run schedules, templates never do.*
+
+## If you were invited to a syndicate (the member's path)
+
+You received a collaborator invite to a repo generated from this template.
+Your membership is a three-ledger act: GitHub grants access (the invite); the
+systicate recognizes you (your manifest row, via PR); the constitution binds
+you (your EXECUTION-LOG signature). Do them in order:
+
+1. **Accept the invite**, then join with one command:
+   `python tools/join.py --handle <your-github-username> --name "Full Name"`
+   It looks up your identity email from the public GitHub API, inserts your
+   manifest row on a branch, and hands you the PR link. (Manual alternative:
+   the address is `<your-account-ID>+<handle>@users.noreply.github.com` — find the
+   ID at `https://api.github.com/users/<handle>`, the `"id":` number.)
+2. **Set your local git email** to that address — `git config user.email <addr>` —
+   or your commits will not attribute. Web-UI commits default to your private
+   email; the attribution ledger keys on the noreply address.
+3. **Sign the agreement:** add your EXECUTION-LOG row via PR. The hash column is
+   `sha256(consortium-agreement.md)`. Any of: `sha256sum agreements/consortium-agreement.md`
+   (Linux/macOS), `Get-FileHash agreements/consortium-agreement.md` (PowerShell), or
+   `python -c "import hashlib;print(hashlib.sha256(open('agreements/consortium-agreement.md','rb').read()).hexdigest())"`
+   (anywhere with Python, including Colab).
+4. **Run `bash bootstrap.sh`** on your own machine when you work locally — it
+   installs the identity gate (blocks commits from unregistered emails) and
+   wires the MCP config to the vault.
+
+Why GitHub doesn't do this automatically: the invite grants *permission*;
+the manifest row is your *self-declared identity* (the assertion the whole
+attribution chain inherits trust from); the signature is the *legal act*.
+Three ledgers, three acts, one member.

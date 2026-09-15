@@ -1,6 +1,13 @@
-# Team arXiv subscriptions — edit these at any time.
-# Syntax: https://info.arxiv.org/help/api/user-manual.html#query_details
-# Idempotency: re-runs skip papers already anywhere in the repo (arxiv_id frontmatter is the dedup key — never delete it).
+# Team arXiv subscriptions — edit freely. Comments must stay OUTSIDE the quotes
+# (a # inside quotes is parsed as search text — finding #13).
+#
+# Channels: primary (your field, daily), foundations (deliberately non-ML adjacent,
+# the gap curated queries structurally miss), novelty (wide categories, bounded
+# serendipity — judge relevance in triage, don't assume these are mistakes).
 arxiv_subscriptions:
-  - "cat:quant-ph AND all:\"machine learning\"   # demo — replace with your field"
-  - "all:\"your topic here\"   # add one line per standing query"
+  # primary
+  - "cat:quant-ph AND all:\"machine learning\""   # # demo — replace with your field
+  # foundations — adjacent depth your primary queries filter out
+  - "cat:quant-ph AND cat:math-ph"
+  # novelty — wide, capped by --max-results, triage filters
+  - "cat:math.NT OR cat:math-ph OR cat:q-bio.NC OR cat:physics.soc-ph"
