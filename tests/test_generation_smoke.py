@@ -411,3 +411,36 @@ def test_anchor_still_runs_once_real_members_exist(generated):
                         "--repo", str(generated)], text=True, capture_output=True)
     assert r.returncode == 0, "a provisioned syndicate was blocked: " + r.stdout + r.stderr
     assert (generated / "ledger" / "anchors" / "log.jsonl").exists()
+
+
+def test_ingest_asks_for_atom(monkeypatch, tmp_path):
+    """arXiv answered 406 Not Acceptable to a request that never said what it
+    would accept. The header is the fix; this is the guard."""
+    seen = {}
+
+    def capture(req, timeout=None):
+        seen.update({k.lower(): v for k, v in req.header_items()})
+        return io.BytesIO(ATOM.encode())
+
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ingest_arxiv", TOOLS / "ingest_arxiv.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod.urllib.request, "urlopen", capture)
+    cfg = tmp_path / "q.yaml"; cfg.write_text('arxiv_subscriptions:\n  - "cat:quant-ph"\n', encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["i", "--config", str(cfg), "--out", str(tmp_path / "v")])
+    mod.main()
+
+    assert "accept" in seen, "no Accept header sent - this is what 406'd"
+    assert "atom" in seen["accept"], "Accept must name Atom: " + seen["accept"]
+
+
+def test_ingest_http_refusal_does_not_blame_the_queries(monkeypatch, tmp_path):
+    """A 406 is a client/header problem. Telling the operator to fix
+    queries.yaml sends them to a file that is already correct - the same
+    two-failures-one-bucket mistake as transient-vs-rejected, one level down."""
+    import urllib.error
+    refused = urllib.error.HTTPError("u", 406, "Not Acceptable", {}, None)
+    code, _, calls = _ingest(monkeypatch, [refused], tmp_path)
+
+    assert code == 1, "an HTTP refusal needs a human, so it must not exit 0 or 2"
+    assert calls["n"] == 1, "406 will not heal itself; it must not be retried"
