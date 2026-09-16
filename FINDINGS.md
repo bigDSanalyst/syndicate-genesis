@@ -48,6 +48,12 @@ Every row was caught live, in a real repo, by the protocol failing loudly
 | 40 | join.py ran every git call through `shell=True` with untrusted `--handle` and `--token` interpolated | argv lists throughout | join.py — e38c5e8 (#1) |
 | 41 | **rows 23-26 were referenced in planning and absent from this ledger** — §1.2 firing on the findings ledger itself; four findings existed only in conversation | reconstructed from the session record and committed by their author; never leave ledger rows in conversation | 7182fd8 |
 | 42 | no tests or CI for ~700 lines of tooling the Agreement executes through; rows 30-34 and 38-40 were all unit-testable and all reached production | `tests/test_generation_smoke.py` + `smoke.yml`: generate a syndicate, run every tool against what generation produced | tests/ — e38c5e8 (#1) |
+| 43 | **both template workflows had never once executed.** A doubled `workflow_dispatch:` key from row 22's dispatch-only conversion made GitHub reject them; thirteen dispatches ended in startup_failure while the Actions list showed them "active" under their file path — the parse-failure tell nobody read | remove the duplicate; `test_workflows_have_no_duplicate_keys` with a strict loader | e3ccb95 + f915ffa (#3) |
+| 44 | **the mold was stamped with syndicate state.** Verifying row 43's fix by dispatching anchor.yml on the template wrote `ledger/anchors/` into it, so every generated syndicate would have inherited the mold's chain — first anchor `seq=2`, chained to an entry describing the template's tree. Operator rule #10, violated by the act of testing the mold. Assistant raised the rule-10 risk in its own check-in note, then dispatched without re-raising it at the moment of action; the smoke guard caught it within seconds | revert the stamp; `test_mold_ships_no_anchor_chain` so the chain stays empty by construction, not by discipline | f915ffa (#3) |
+| 45 | **row 37, quantified: eight discarded block heights.** The instance holding the priority proofs had none of the mold's fixes — eight confirmed Bitcoin attestations recorded as null while the real heights (965528…967082, monotonic) sat in the `.ots` files the whole time | backfill from the stamps, flagged `height_recovered`; `height` is outside CORE_FIELDS so the hash chain is untouched | 7b70566 (shakedown) |
+| 46 | **a test passed vacuously when the data shifted under it.** `test_anchor_run_then_verify` asserted on `log.jsonl.splitlines()[0]` and kept reporting green once that first line silently became the mold's inherited entry rather than the one the run created. A positional assertion is a wrong answer waiting for the data to move — rows 30/31/34's class, reproduced inside a guard written to catch that class | locate the entry by the repo's own HEAD and assert exactly one; never by position | f915ffa (#3) |
+| 47 | **a strict YAML loader called through `yaml.safe_load` silently no-ops.** `safe_load` hardcodes `SafeLoader` and ignores a `StrictLoader` subclass entirely, so a duplicate-key detector built that way reports every file clean — the detector for row 43's blind spot, with row 43's blind spot | `yaml.load(fh, Loader=StrictLoader)`, and belt-and-braces with an occurrence count | f915ffa (#3) |
+| 48 | **the ledger gate does not hold against the operator's own token.** A push to shakedown `main` touching `ledger/anchors/log.jsonl` — gate 2, CODEOWNERS-covered — reported `Bypassed rule violations: Changes must be made through a pull request` and landed anyway. Operator checklist #1's "admins too" is not actually set | enable "include administrators" on the ruleset, or accept in writing that the money ledger's gate is advisory | open — governance |
 
 ## The operator checklist (condensed from the ledger)
 
@@ -81,3 +87,21 @@ AUDIT-001 (`docs/AUDIT-001-opus.md`): an external cold audit that executed the
 tooling rather than reading it. Its own scope error — auditing a generated
 instance and taking it for the system — is what surfaced row 37. Nothing in this
 block was found by reading source; every row was produced by running something.
+
+## What rows 43-48 have in common
+
+Every one reported success while broken. Nothing crashed. `join.py` printed a
+sensible error, the workflows showed `active`, `verify` printed `OK`, the smoke
+suite went green, the push succeeded. Each failure lived in a seam — two files
+disagreeing, two parsers disagreeing, mold against instance, a test against the
+data beneath it — and seams do not raise exceptions. They agree with everyone.
+
+What caught all six was running the thing and looking at what came out.
+
+Two of them are worse than that. Row 22's fix created the bug that hid row 22.
+Row 47 is row 43's detector containing row 43's defect. A fix that never
+reproduced the original failure does not close a bug; it relocates it, usually
+somewhere with better cover. That is now the ledger's most repeated shape — rows
+21→38 and 22→43 — and the only reliable answer found so far is a guard that has
+been mutation-tested: made to fail on the exact defect it claims to catch, before
+anyone trusts it green.
