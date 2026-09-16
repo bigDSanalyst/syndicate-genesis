@@ -264,3 +264,100 @@ def test_mold_ships_no_anchor_chain(generated):
     assert not stale, (
         "the template ships an anchor chain; generated syndicates would "
         "inherit it: " + ", ".join(stale))
+
+
+# ───────────────────────────── the ingester ──────────────────────────────
+# ingest_arxiv.py had zero coverage here while it ran red in production for
+# four consecutive mornings on nothing but rate limiting. It is also the
+# skeleton any future ingestion tool would be cloned from, so its failure
+# handling is the part that most needs a guard.
+
+ATOM = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2609.09999v1</id>
+    <title>A Paper About Seams</title>
+    <summary>Components do not fail alone.</summary>
+    <published>2026-09-16T00:00:00Z</published>
+    <author><name>A. Researcher</name></author>
+  </entry>
+</feed>"""
+
+ERROR_FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry><id>http://arxiv.org/api/errors#malformed</id><title>Error</title></entry>
+</feed>"""
+
+
+def _ingest(monkeypatch, responses, tmp_path, config_text=None):
+    """Run ingest_arxiv against a scripted sequence of API responses."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ingest_arxiv", TOOLS / "ingest_arxiv.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    seq = list(responses)
+    calls = {"n": 0, "slept": []}
+
+    def fake_urlopen(req, timeout=None):
+        calls["n"] += 1
+        item = seq.pop(0) if seq else seq_last
+        if isinstance(item, Exception):
+            raise item
+        return io.BytesIO(item.encode())
+
+    seq_last = responses[-1] if responses else ATOM
+    monkeypatch.setattr(mod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(mod.time, "sleep", lambda s: calls["slept"].append(s))
+
+    cfg = tmp_path / "queries.yaml"
+    cfg.write_text(config_text or 'arxiv_subscriptions:\n  - "cat:quant-ph"\n', encoding="utf-8")
+    out = tmp_path / "vault" / "10-literature"
+    monkeypatch.setattr(sys, "argv", ["ingest_arxiv.py", "--config", str(cfg), "--out", str(out)])
+    return mod.main(), out, calls
+
+
+def test_ingest_retries_a_429_instead_of_failing_the_day(monkeypatch, tmp_path):
+    """A 429 is the API asking us to wait. It ran red four mornings instead."""
+    import urllib.error
+    throttled = urllib.error.HTTPError("u", 429, "Too Many Requests", {}, None)
+    code, out, calls = _ingest(monkeypatch, [throttled, throttled, ATOM], tmp_path)
+
+    assert code == 0, "a 429 that later succeeds must not fail the run"
+    assert calls["n"] == 3, "expected two retries then success"
+    assert calls["slept"], "retried with no backoff at all"
+    assert sorted(calls["slept"]) == calls["slept"], "backoff must not shrink"
+    assert len(list(out.glob("*.md"))) == 1
+
+
+def test_ingest_transient_and_rejected_do_not_share_an_exit_code(monkeypatch, tmp_path):
+    """Rate limiting is not a broken subscription; the operator must be able
+    to tell them apart without reading the log."""
+    import urllib.error
+    throttled = urllib.error.HTTPError("u", 429, "Too Many Requests", {}, None)
+    code, _, _ = _ingest(monkeypatch, [throttled] * 8, tmp_path)
+    assert code == 2, "exhausted retries must exit DEFERRED (2), not a config error"
+
+    code, _, _ = _ingest(monkeypatch, [ERROR_FEED], tmp_path)
+    assert code == 1, "a query arXiv rejects must exit 1 - a human has to fix it"
+
+
+def test_ingest_honours_retry_after(monkeypatch, tmp_path):
+    import urllib.error
+    throttled = urllib.error.HTTPError(
+        "u", 429, "Too Many Requests", {"Retry-After": "7"}, None)
+    code, _, calls = _ingest(monkeypatch, [throttled, ATOM], tmp_path)
+    assert code == 0
+    assert calls["slept"][0] == 7, "Retry-After ignored: got %s" % calls["slept"]
+
+
+def test_ingest_is_idempotent_across_runs(monkeypatch, tmp_path):
+    """The dedup key is load-bearing (MAP.md law 1). Re-running must not duplicate."""
+    code, out, _ = _ingest(monkeypatch, [ATOM], tmp_path)
+    assert code == 0 and len(list(out.glob("*.md"))) == 1
+    note = next(out.glob("*.md")).read_text(encoding="utf-8")
+    assert 'arxiv_id: "2609.09999"' in note, "dedup key missing from frontmatter"
+
+    code, out, _ = _ingest(monkeypatch, [ATOM], tmp_path)
+    assert code == 0
+    assert len(list(out.glob("*.md"))) == 1, "second run duplicated the paper"
