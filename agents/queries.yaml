@@ -6,7 +6,7 @@
 # serendipity — judge relevance in triage, don't assume these are mistakes).
 arxiv_subscriptions:
   # primary
-  - "cat:quant-ph AND all:\"machine learning\""   # # demo — replace with your field
+  - "cat:quant-ph AND all:\"machine learning\""   # demo — replace with your field
   # foundations — adjacent depth your primary queries filter out
   - "cat:quant-ph AND cat:math-ph"
   # novelty — wide, capped by --max-results, triage filters

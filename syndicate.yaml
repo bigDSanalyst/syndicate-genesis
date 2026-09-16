@@ -24,7 +24,7 @@ attribution:
   clock: "push-webhook"   # v1 tooling uses committer dates; see attribution.py docstring
   weights: {churn: 0.35, review: 0.25, prompts: 0.20, breadth: 0.20}
   exclude_authors_matching:
-    - '\\[bot\\]$'
+    - '\[bot\]$'
     - "ingest-bot@users.noreply.github.com$"
     - "anchor-bot@users.noreply.github.com$"
 

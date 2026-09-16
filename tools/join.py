@@ -14,6 +14,7 @@ commits will not attribute (finding #17):  git config user.email <addr>
 """
 import argparse
 import json
+import re
 import subprocess
 import sys
 import urllib.request
@@ -23,17 +24,25 @@ from pathlib import Path
 API = 'https://api.github.com'
 
 
-def sh(cmd, cwd=None):
-    r = subprocess.run(cmd, shell=True, text=True, capture_output=True, cwd=cwd)
+def sh(*args, cwd=None):
+    """Run git as an argv list - never a shell string. A handle or name is
+    untrusted input; shell=True made it executable."""
+    r = subprocess.run(args, text=True, capture_output=True, cwd=cwd)
     if r.returncode != 0:
-        sys.exit('ERROR: ' + (r.stderr or r.stdout).strip()[:300])
-    return r.stdout.strip()
+        msg = (r.stderr or r.stdout).strip()[:300]
+        sys.exit('ERROR: ' + redact(msg))
+    return redact(r.stdout.strip())
+
+
+def redact(text):
+    """git echoes the remote URL on failure; never let a PAT reach the terminal."""
+    return re.sub(r"https://[^@/\s]+@", "https://***@", text)
 
 
 def main():
     ap = argparse.ArgumentParser(description='Join a syndicate: one command, one PR.')
     ap.add_argument('--handle', required=True)
-    ap.add_argument('--name', required=True)    # # displayed name; identity binding is handle+email, names are cosmetic
+    ap.add_argument('--name', required=True)    # displayed name; identity binding is handle+email, names are cosmetic
     ap.add_argument('--role', default='contributor')
     ap.add_argument('--tier', default='standard', choices=['verified', 'standard', 'provisional'])
     ap.add_argument('--repo', type=Path, default=Path('.'))
@@ -49,9 +58,9 @@ def main():
     email = str(user['id']) + '+' + user['login'] + '@users.noreply.github.com'
     print('identity: ' + user['login'] + ' -> ' + email)
 
-    sh('git -C . fetch origin', cwd=repo)
+    sh('git', '-C', '.', 'fetch', 'origin', cwd=repo)
     branch = 'member/' + args.handle
-    sh('git -C . checkout -B ' + branch + ' origin/main', cwd=repo)
+    sh('git', '-C', '.', 'checkout', '-B', branch, 'origin/main', cwd=repo)
 
     manifest = repo / 'syndicate.yaml'
     txt = manifest.read_text(encoding='utf-8')
@@ -62,32 +71,39 @@ def main():
     row = [
         '  - name: ' + json.dumps(args.name),
         '    github: ' + json.dumps(args.handle),
-        '    orcid: "0000-0000-0000-0000"    # # optional: edit after merge if you have one',
+        '    orcid: "0000-0000-0000-0000"    # optional: edit after merge if you have one',
         '    email: ' + json.dumps(email),
         '    role: ' + json.dumps(args.role),
         '    trust_tier: ' + args.tier,
         '    joined: ' + json.dumps(today),
     ]
-    anchor = 'members:    # # ONE ROW PER MEMBER, EDIT AT GENESIS'
-    if anchor not in txt:
-        sys.exit('ERROR: manifest members anchor not found — file changed shape?')
-    txt = txt.replace(anchor, anchor + '\n' + '\n'.join(row), 1)
+    # Match the 'members:' key itself, never its trailing comment: comment text
+    # drifts between template versions and an exact-string anchor bricks the tool.
+    m = re.search(r'^members:.*$', txt, re.MULTILINE)
+    if not m:
+        sys.exit('ERROR: no top-level members: key in syndicate.yaml — file changed shape?')
+    txt = txt[:m.end()] + '\n' + '\n'.join(row) + txt[m.end():]
     manifest.write_text(txt, encoding='utf-8')
-    import yaml    # # validate before committing: a broken manifest blocks the whole syndicate (finding #1)
+    import yaml    # validate before committing: a broken manifest blocks the whole syndicate (finding #1)
     cfg = yaml.safe_load(txt)
     assert any(m.get('email') == email for m in cfg['members']), 'row not parseable — aborting'
     print('manifest row inserted and parses cleanly')
 
-    identity = ''
+    remote = sh('git', '-C', '.', 'remote', 'get-url', 'origin', cwd=repo)
+    owner_path = remote.split('github.com/')[-1]
+    sh('git', '-C', '.', 'add', 'syndicate.yaml', cwd=repo)
+    sh('git', '-C', '.', '-c', 'user.name=' + args.handle, '-c', 'user.email=' + email,
+       'commit', '-m', 'manifest: add member ' + args.handle, cwd=repo)
     if args.token:
-        identity = args.token + '@'
-    remote = sh('git -C . remote get-url origin', cwd=repo)
-    if args.token:
-        sh('git -C . remote set-url origin https://' + identity + 'github.com/' + remote.split('github.com/')[-1], cwd=repo)
-    sh('git -C . add syndicate.yaml', cwd=repo)
-    sh('git -C . -c user.name="' + args.handle + '" -c user.email="' + email + '" commit -m "manifest: add member ' + args.handle + '"', cwd=repo)
-    sh('git -C . push -u origin ' + branch, cwd=repo)
-    owner_repo = remote.split('github.com/')[-1].removesuffix('.git')
+        # Push to a one-shot authenticated URL. Never `remote set-url` - that
+        # writes the PAT into .git/config in plaintext, where it persists long
+        # after this script exits (SECURITY.md threat #2).
+        push_url = 'https://' + args.token + '@github.com/' + owner_path
+        sh('git', '-C', '.', 'push', '-u', push_url, branch, cwd=repo)
+        sh('git', '-C', '.', 'branch', '--set-upstream-to=origin/' + branch, branch, cwd=repo)
+    else:
+        sh('git', '-C', '.', 'push', '-u', 'origin', branch, cwd=repo)
+    owner_repo = owner_path.removesuffix('.git')
     pr_url = 'https://github.com/' + owner_repo + '/compare/main...' + branch
     print('pushed branch ' + branch)
     print('open the PR here: ' + pr_url)
