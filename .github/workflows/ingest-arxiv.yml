@@ -3,7 +3,6 @@ on:
   # TEMPLATE MODE: no schedules — a template is the mold, not a syndicate.
   # Generated repos: re-enable schedules (see README 'Activation').
   workflow_dispatch: {}
-  workflow_dispatch: {}
 permissions: {contents: write}
 concurrency: {group: repo-write, cancel-in-progress: false}
 jobs:
