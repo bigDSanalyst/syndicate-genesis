@@ -28,6 +28,27 @@ Every row was caught live, in a real repo, by the protocol failing loudly
 | 21 | paste-proof converter swallowed code after comment markers | compile gate caught it pre-commit; repair cell | 47b |
 | 22 | template workflows re-fired on push after partial dispatch-only conversion | full trigger reset verified by check cell | Cell 48 |
 
+<!-- Rows 23-26 are referenced in planning but were never committed to this
+     ledger. See row 41: the gap is left open deliberately rather than
+     silently renumbered. Reconstruct and insert them here. -->
+
+| 27 | arXiv 429 with no retry/backoff exits 1; daily ingest ran red three consecutive days | `Retry-After` + exponential backoff in `fetch_papers`; separate transient failure from a bad query in the exit code | open — v1.3 |
+| 28 | a deployed instance kept the comment-poisoned queries after the template fixed them, knowingly — the corpus is unfiltered intake | remediate the instance; the general gap is row 37 | shakedown |
+| 29 | web-UI commits under a personal email zero out a member's entire churn and breadth (row 17, now quantified: 0.7619/0.2381, `churn=0.0 files=0`) | manifest carries an `emails:` list so historical commits stay recoverable | open — v1.3 |
+| 30 | block heights matched as `height N`; `ots` emits `BitcoinBlockHeaderAttestation(N)`, so every height in every ledger was null | regex on the attestation form, `min()` across calendars — the earliest attesting block is the strongest priority claim | anchor.py — e38c5e8 (#1) |
+| 31 | `merged_by` is absent from the list-PRs summary representation; merge acts scored zero for everyone, permanently | fetch `GET /pulls/{n}` for merged PRs in-window | attribution.py — e38c5e8 (#1) |
+| 32 | attribution windows were cumulative (`min`/`max` over all commits) while labelled with an ISO week | `--since` / `--until` with ordering validation | attribution.py — e38c5e8 (#1) |
+| 33 | `'\\[bot\\]$'` in YAML single quotes compiles to a regex for a literal backslash; the attribution firewall never matched a bot | `'\[bot\]$'` | syndicate.yaml — e38c5e8 (#1) |
+| 34 | API failure warned, zeroed review credit and exited 0 — a green check lying in the money path | non-zero exit; `GITHUB_TOKEN` auth; `rel=next` pagination | attribution.py — e38c5e8 (#1) |
+| 35 | the only substantive research note mis-cites 4 of 10 evidence IDs, already Bitcoin-anchored | appended correction entry, never a rewrite (MAP.md law 4) | open — vault |
+| 36 | a placeholder attribution window was committed and anchored; no real window ever ran; no workflow invokes attribution.py | weekly attribution workflow; void the placeholder by appended entry | open — v1.3 |
+| 37 | **generated repos are frozen at their generation-time template version; no template→instance propagation path exists** | design an absorption mechanism (upstream cherry-pick, with the anchor chain recording the absorption) | open — ROADMAP v1.4 |
+| 38 | **join.py could not parse the manifest it shipped with — the adopter entry path had never been executed.** Row 21's fix doubled comment markers and two landed in string literals, in the same release | match the `members:` key by regex, never a drifting comment; generation smoke test so it cannot recur silently | join.py — e38c5e8 (#1) |
+| 39 | join.py wrote the adopter's PAT into `.git/config` via `remote set-url` and never reverted it; `sh()` printed raw git stderr | one-shot authenticated push URL; redact `https://…@` from all output | join.py — e38c5e8 (#1) |
+| 40 | join.py ran every git call through `shell=True` with untrusted `--handle` and `--token` interpolated | argv lists throughout | join.py — e38c5e8 (#1) |
+| 41 | **rows 23-26 are referenced in planning and absent from this ledger** — §1.2 firing on the findings ledger itself | reconstruct and commit, or void explicitly; never leave ledger rows in conversation | open — decision needed |
+| 42 | no tests or CI for ~700 lines of tooling the Agreement executes through; rows 30-34 and 38-40 were all unit-testable and all reached production | `tests/test_generation_smoke.py` + `smoke.yml`: generate a syndicate, run every tool against what generation produced | tests/ — e38c5e8 (#1) |
+
 ## The operator checklist (condensed from the ledger)
 
 1. Branch protection ON before any signature PR (ruleset, approvals, admins included)
@@ -42,3 +63,21 @@ Every row was caught live, in a real repo, by the protocol failing loudly
 10. Templates are molds: no schedules, no syndicate pipelines inside them
 11. Dispatch-test workflow edits before calling them done
 12. Bots pushing to protected main need PAT (bootstrap) or App (production)
+
+## Row 21 is not closed
+
+Row 21 ("paste-proof converter swallowed code after comment markers") was
+recorded as fixed. The fix doubled comment markers, and five of those doubled
+markers shipped in v1.2 — two of them inside *string literals*, where a
+comment-marker fix becomes a logic bug. One broke join.py's manifest anchor
+(row 38); the other wrote a malformed comment into every new member's row.
+
+A converter artifact that relocates from comments into data is not the same bug
+fixed. It is the same bug moved to where it has teeth. Row 38 is row 21's child.
+
+## Where rows 27-42 came from
+
+AUDIT-001 (`docs/AUDIT-001-opus.md`): an external cold audit that executed the
+tooling rather than reading it. Its own scope error — auditing a generated
+instance and taking it for the system — is what surfaced row 37. Nothing in this
+block was found by reading source; every row was produced by running something.
