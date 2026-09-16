@@ -180,3 +180,55 @@ def test_every_tool_has_a_working_help(generated):
         r = subprocess.run([sys.executable, str(tool), "--help"],
                            text=True, capture_output=True, cwd=generated)
         assert r.returncode == 0, tool.name + " --help failed: " + r.stderr[:200]
+
+
+# ──────────────────────── the workflows themselves ────────────────────────
+
+def _strict_load(path):
+    """Parse YAML rejecting duplicate keys.
+
+    yaml.safe_load silently keeps the last of a duplicated key, which is how
+    a doubled `workflow_dispatch:` survived in two template workflows while
+    GitHub's own parser rejected both files outright. Every dispatch of them
+    ended in startup_failure, and nothing local caught it - the same shape as
+    finding #18 (GitHub's validator catches what safe_load passes).
+    """
+    class StrictLoader(yaml.SafeLoader):
+        pass
+
+    def no_duplicates(loader, node, deep=False):
+        mapping = {}
+        for key_node, value_node in node.value:
+            key = loader.construct_object(key_node, deep=deep)
+            if key in mapping:
+                raise AssertionError("duplicate key %r at line %d"
+                                     % (key, key_node.start_mark.line + 1))
+            mapping[key] = loader.construct_object(value_node, deep=deep)
+        return mapping
+
+    StrictLoader.add_constructor(
+        yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, no_duplicates)
+    with open(path, encoding="utf-8") as fh:
+        return yaml.load(fh, Loader=StrictLoader)
+
+
+def test_workflows_have_no_duplicate_keys(generated):
+    """A workflow GitHub cannot parse is a workflow that has never run."""
+    workflows = sorted((generated / ".github" / "workflows").glob("*.yml"))
+    assert workflows, "no workflows found"
+    for wf in workflows:
+        _strict_load(wf)    # raises AssertionError naming the key and line
+
+
+def test_template_workflows_declare_no_schedule(generated):
+    """Operator rule #10: a template is the mold, not a syndicate.
+
+    Skips the test workflow: proving the mold works is not a syndicate pipeline.
+    """
+    for wf in sorted((generated / ".github" / "workflows").glob("*.yml")):
+        if wf.name == "smoke.yml":
+            continue
+        cfg = _strict_load(wf)
+        triggers = cfg.get(True) or cfg.get("on") or {}    # bare `on:` parses as True
+        assert "schedule" not in triggers, (
+            wf.name + " declares a schedule; templates never run schedules")
