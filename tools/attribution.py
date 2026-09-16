@@ -10,6 +10,7 @@ mis-attribute governance acts). Bots excluded via exclude_authors_matching.
 import argparse
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -31,19 +32,41 @@ def sh(*args, cwd):
 
 
 def api_get(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "syndicate-attribution/1.0", "Accept": "application/vnd.github+json"})
+    """Fetch one API page. Raises on failure: a degraded window must never
+    print a green result (operator rule #8 - a green check must never lie)."""
+    headers = {"User-Agent": "syndicate-attribution/1.0", "Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.load(resp)
+            return json.load(resp), resp.headers.get("Link", "")
     except Exception as e:
-        print("WARNING: API failed (review credit degraded):", url, "->", e)
-        return None
+        sys.exit("ERROR: GitHub API failed (review/merge credit would be wrong): "
+                 + url + " -> " + str(e) + "\n"
+                 "  set GITHUB_TOKEN to raise the 60/hr anonymous rate limit.")
+
+
+def api_paged(url):
+    """Follow rel=next so windows past 100 PRs are not silently truncated."""
+    out = []
+    while url:
+        page, link = api_get(url)
+        out.extend(page)
+        url = None
+        for part in link.split(","):
+            if 'rel="next"' in part and "<" in part:
+                url = part[part.index("<") + 1:part.index(">")]
+    return out
 
 
 def main():
     ap = argparse.ArgumentParser(description="Compute attribution shares for a ledger window.")
     ap.add_argument("--repo", type=Path, default=Path("."))
     ap.add_argument("--label", default=None)
+    ap.add_argument("--since", default=None, help="window start YYYY-MM-DD (default: first commit)")
+    ap.add_argument("--until", default=None, help="window end YYYY-MM-DD (default: last commit)")
     args = ap.parse_args()
     repo = args.repo.resolve()
     cfg = yaml.safe_load((repo / "syndicate.yaml").read_text())
@@ -57,7 +80,10 @@ def main():
     mem_by_login = {m["github"]: m for m in members}
     head_tree = set(sh("git", "ls-tree", "-r", "--name-only", "HEAD", cwd=repo).splitlines())
     dates = sh("git", "log", "--pretty=format:%cd", "--date=short", "HEAD", cwd=repo).splitlines()
-    start, end = min(dates), max(dates)
+    start = args.since or min(dates)
+    end = args.until or max(dates)
+    if start > end:
+        sys.exit("ERROR: --since " + start + " is after --until " + end)
     label = args.label or "{}-W{:02d}".format(*date.fromisoformat(end).isocalendar()[:2])
     churn = {m["email"]: 0.0 for m in members}
     files = {m["email"]: set() for m in members}
@@ -84,13 +110,18 @@ def main():
     reviews = {m["github"]: 0 for m in members}
     remote = sh("git", "remote", "get-url", "origin", cwd=repo)
     owner_repo = re.search(r"github\.com[:/](.+?)(\.git)?$", remote).group(1)
-    prs = api_get(API + "/repos/" + owner_repo + "/pulls?state=all&per_page=100") or []
+    prs = api_paged(API + "/repos/" + owner_repo + "/pulls?state=all&per_page=100")
     for pr in prs:
-        mb = (pr.get("merged_by") or {}).get("login")
         merged_at = (pr.get("merged_at") or "")[:10]
-        if mb in mem_by_login and start <= merged_at <= end:
-            merges[mb] += 1
-        rv = api_get(API + "/repos/" + owner_repo + "/pulls/" + str(pr["number"]) + "/reviews") or []
+        # merged_by is NOT in the list endpoint's summary representation - it
+        # exists only on GET /pulls/{n}. Reading it off the list silently
+        # scored every merge act as zero.
+        if merged_at and start <= merged_at <= end:
+            full, _ = api_get(API + "/repos/" + owner_repo + "/pulls/" + str(pr["number"]))
+            mb = (full.get("merged_by") or {}).get("login")
+            if mb in mem_by_login:
+                merges[mb] += 1
+        rv = api_paged(API + "/repos/" + owner_repo + "/pulls/" + str(pr["number"]) + "/reviews")
         for r_ in rv:
             who = (r_.get("user") or {}).get("login")
             when = (r_.get("submitted_at") or "")[:10]

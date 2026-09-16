@@ -133,11 +133,11 @@ def parse_info(text):
     m = re.search(r"File sha256 hash:\s*([0-9a-f]+)", text)
     if m:
         out["digest"] = m.group(1)
-    if "BitcoinBlockHeaderAttestation" in text:
+    heights = [int(h) for h in re.findall(r"BitcoinBlockHeaderAttestation\((\d+)\)", text)]
+    if heights:
         out["confirmed"] = True
-        h = re.search(r"height\s+(\d+)", text)
-        if h:
-            out["height"] = int(h.group(1))
+        # earliest attesting block is the strongest priority claim
+        out["height"] = min(heights)
     return out
 
 

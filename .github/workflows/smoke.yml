@@ -1,0 +1,21 @@
+# Generation smoke test. Runs on push and PR only - never on a schedule.
+# Operator rule #10 bars syndicate pipelines from firing inside the template;
+# a test that proves the mold works is not a syndicate pipeline.
+name: smoke
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  generate-and-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r tools/requirements.txt -r tests/requirements.txt
+      - name: generate a syndicate and run every tool against it
+        run: python -m pytest tests/ -q
