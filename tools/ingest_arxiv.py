@@ -12,6 +12,7 @@ import sys
 import time
 import textwrap
 import urllib.parse
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -23,6 +24,16 @@ ARXIV_API_URL = "https://export.arxiv.org/api/query"
 ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
 USER_AGENT = "syndicate-genesis/1.0 (vault ingestion)"
 REQUEST_GAP_S = 3
+
+# arXiv throttles shared egress hard, and CI runners share a lot of it. A 429 is
+# the API asking us to wait, not a reason to fail the day's ingestion: the
+# unretried version ran red four mornings in a row on nothing but rate limiting.
+RETRY_STATUSES = {429, 500, 502, 503, 504}
+MAX_ATTEMPTS = 4
+BACKOFF_BASE_S = 4
+MAX_RETRY_AFTER_S = 120
+
+REJECTED, TRANSIENT = "rejected", "transient"
 
 
 def sanitize_filename(title: str) -> str:
@@ -102,26 +113,65 @@ def write_note(paper: dict, out_dir: Path) -> Path:
     return filepath
 
 
-def fetch_papers(query: str, max_results: int):
-    """List of papers, [] if none, or None if the query/request failed."""
+def retry_delay(err, attempt: int) -> float:
+    """Honour Retry-After when arXiv sends one; otherwise back off exponentially."""
+    after = getattr(err, "headers", None) and err.headers.get("Retry-After")
+    if after:
+        try:
+            return min(float(after), MAX_RETRY_AFTER_S)
+        except ValueError:
+            pass
+    return BACKOFF_BASE_S * (2 ** attempt)
+
+
+def fetch_once(query: str, max_results: int):
     params = urllib.parse.urlencode({
         "search_query": query, "max_results": max_results,
         "sortBy": "submittedDate", "sortOrder": "descending",
     })
     req = urllib.request.Request(f"{ARXIV_API_URL}?{params}",
         headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            root = ET.fromstring(resp.read())
-    except Exception as e:
-        print(f"  ❌ request failed: {e}")
-        return None
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return ET.fromstring(resp.read())
+
+
+def fetch_papers(query: str, max_results: int):
+    """(papers, None) on success, or (None, REJECTED | TRANSIENT).
+
+    The two failures are not the same and must never share an exit path: a
+    rejected query is a config error a human has to fix, a transient one is
+    the network and resolves itself. Collapsing them is how four days of
+    rate limiting looked exactly like a broken subscription.
+    """
+    root = None
+    for attempt in range(MAX_ATTEMPTS):
+        err = None
+        try:
+            root = fetch_once(query, max_results)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code not in RETRY_STATUSES:
+                print(f"  ❌ arXiv rejected this request: HTTP {e.code}")
+                return None, REJECTED
+            err, reason = e, f"HTTP {e.code}"
+        except Exception as e:                      # timeouts, DNS, reset, bad XML
+            err, reason = e, (str(e) or type(e).__name__)
+        if attempt == MAX_ATTEMPTS - 1:
+            print(f"  ⏳ transient failure after {MAX_ATTEMPTS} attempts: {reason}")
+            return None, TRANSIENT
+        # Hold the exception in a local: sys.exc_info() is already cleared here,
+        # so reading Retry-After off it silently fell back to exponential.
+        delay = retry_delay(err, attempt)
+        print(f"  ⏳ {reason}; retrying in {delay:.0f}s "
+              f"({attempt + 1}/{MAX_ATTEMPTS - 1})")
+        time.sleep(delay)
+
     papers = []
     for entry in root.findall("atom:entry", ATOM_NS):
         id_url = entry.findtext("atom:id", "", ATOM_NS)
         if not id_url or "/api/errors" in id_url:
             print(f"  ❌ arXiv rejected this query: {id_url}")
-            return None
+            return None, REJECTED
         papers.append({
             "id": extract_arxiv_id(id_url),
             "url": id_url,
@@ -131,7 +181,7 @@ def fetch_papers(query: str, max_results: int):
                 for a in entry.findall("atom:author", ATOM_NS)],
             "published": entry.findtext("atom:published", "", ATOM_NS),
         })
-    return papers
+    return papers, None
 
 
 def main() -> int:
@@ -152,14 +202,17 @@ def main() -> int:
     ids, prefixes = scan_existing(scan_root)
     print(f"vault: {len(ids)} known arXiv ids under {scan_root}")
 
-    new, failed = 0, 0
+    new, rejected, transient = 0, 0, 0
     for i, query in enumerate(queries):
         if i:
             time.sleep(REQUEST_GAP_S)
         print(f"\n🔍 {query}")
-        papers = fetch_papers(query, args.max_results)
-        if papers is None:
-            failed += 1
+        papers, err = fetch_papers(query, args.max_results)
+        if err == REJECTED:
+            rejected += 1
+            continue
+        if err == TRANSIENT:
+            transient += 1
             continue
         for paper in papers:
             if not paper["id"]:
@@ -172,8 +225,16 @@ def main() -> int:
             ids.add(paper["id"]); prefixes.add(key); new += 1
             print(f"  ✅ {path.name}")
 
-    print(f"\n{new} new note(s), {failed} failed query(ies)")
-    return 1 if failed else 0
+    print(f"\n{new} new note(s), {rejected} rejected, {transient} transient")
+    if rejected:
+        print(f"FAILED: {rejected} quer(ies) rejected by arXiv - fix agents/queries.yaml")
+        return 1
+    if transient:
+        print(f"DEFERRED: {transient} quer(ies) hit transient errors after "
+              f"{MAX_ATTEMPTS} attempts each; the vault is unchanged and the "
+              f"next scheduled run retries. Not a configuration problem.")
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
