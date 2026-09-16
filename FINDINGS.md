@@ -27,6 +27,10 @@ Every row was caught live, in a real repo, by the protocol failing loudly
 | 20 | spec-claim gravity: overclaiming constructs reinsert themselves after removal | don't make the claim; park it with requirements documented | ORACLE-SPEC/SUBSTRATE |
 | 21 | paste-proof converter swallowed code after comment markers | compile gate caught it pre-commit; repair cell | 47b |
 | 22 | template workflows re-fired on push after partial dispatch-only conversion | full trigger reset verified by check cell | Cell 48 |
+| 23 | cold readers flag documented studs — the pitch doesn't route to the ledger | failure-ledger-first framing: FINDINGS.md leads the README and the launch thread | deepseek review (rebuttal) |
+| 24 | adopter-facing register missing; all copy pitched builder-ward | two-register copy: builder line for threads, adopter line ('your collaborators, your rules, receipts that outlast the collaboration') for DMs | deepseek review (rebuttal) |
+| 25 | dispute-stories are lagging and unschedulable; the countable unit is the near-miss | syndicate #1 instruments near-misses: consulted-and-boring, or reached-for-under-friction — countable, falsifiable in six weeks | deepseek review (rebuttal) |
+| 26 | model-on-model convergence is mirrors, not witnesses | no claim of external validation until one human practitioner, cold, wants it | deepseek review (rebuttal) |
 
 ## The operator checklist (condensed from the ledger)
 
