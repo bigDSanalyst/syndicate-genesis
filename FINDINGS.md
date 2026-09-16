@@ -32,10 +32,6 @@ Every row was caught live, in a real repo, by the protocol failing loudly
 | 25 | dispute-stories are lagging and unschedulable; the countable unit is the near-miss | syndicate #1 instruments near-misses: consulted-and-boring, or reached-for-under-friction — countable, falsifiable in six weeks | deepseek review (rebuttal) |
 | 26 | model-on-model convergence is mirrors, not witnesses | no claim of external validation until one human practitioner, cold, wants it | deepseek review (rebuttal) |
 
-<!-- Rows 23-26 are referenced in planning but were never committed to this
-     ledger. See row 41: the gap is left open deliberately rather than
-     silently renumbered. Reconstruct and insert them here. -->
-
 | 27 | arXiv 429 with no retry/backoff exits 1; daily ingest ran red three consecutive days | `Retry-After` + exponential backoff in `fetch_papers`; separate transient failure from a bad query in the exit code | open — v1.3 |
 | 28 | a deployed instance kept the comment-poisoned queries after the template fixed them, knowingly — the corpus is unfiltered intake | remediate the instance; the general gap is row 37 | shakedown |
 | 29 | web-UI commits under a personal email zero out a member's entire churn and breadth (row 17, now quantified: 0.7619/0.2381, `churn=0.0 files=0`) | manifest carries an `emails:` list so historical commits stay recoverable | open — v1.3 |
@@ -50,7 +46,7 @@ Every row was caught live, in a real repo, by the protocol failing loudly
 | 38 | **join.py could not parse the manifest it shipped with — the adopter entry path had never been executed.** Row 21's fix doubled comment markers and two landed in string literals, in the same release | match the `members:` key by regex, never a drifting comment; generation smoke test so it cannot recur silently | join.py — e38c5e8 (#1) |
 | 39 | join.py wrote the adopter's PAT into `.git/config` via `remote set-url` and never reverted it; `sh()` printed raw git stderr | one-shot authenticated push URL; redact `https://…@` from all output | join.py — e38c5e8 (#1) |
 | 40 | join.py ran every git call through `shell=True` with untrusted `--handle` and `--token` interpolated | argv lists throughout | join.py — e38c5e8 (#1) |
-| 41 | **rows 23-26 are referenced in planning and absent from this ledger** — §1.2 firing on the findings ledger itself | reconstruct and commit, or void explicitly; never leave ledger rows in conversation | open — decision needed |
+| 41 | **rows 23-26 were referenced in planning and absent from this ledger** — §1.2 firing on the findings ledger itself; four findings existed only in conversation | reconstructed from the session record and committed by their author; never leave ledger rows in conversation | 7182fd8 |
 | 42 | no tests or CI for ~700 lines of tooling the Agreement executes through; rows 30-34 and 38-40 were all unit-testable and all reached production | `tests/test_generation_smoke.py` + `smoke.yml`: generate a syndicate, run every tool against what generation produced | tests/ — e38c5e8 (#1) |
 
 ## The operator checklist (condensed from the ledger)

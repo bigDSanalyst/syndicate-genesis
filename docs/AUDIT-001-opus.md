@@ -105,13 +105,19 @@ noticing, and row 28 states it accurately.
 
 Rows **37, 41, 42**.
 
-Row 41 is the uncomfortable one. `FINDINGS.md` contains rows 1-22. Rows 23-26
-are cited in planning as established ledger rows and do not exist in the record.
-Agreement §1.2: *"Work done outside it and not committed does not count for any
-purpose under this Agreement."* The findings ledger is the single artifact that
-cannot afford uncommitted rows, and it has four. This document's rows resume at
-27 so existing references stay valid; the gap is left open rather than silently
-closed.
+Row 41 was the uncomfortable one. At the time of the audit, `FINDINGS.md`
+contained rows 1-22, while rows 23-26 were cited in planning as established
+ledger rows and did not exist in the record. Agreement §1.2: *"Work done outside
+it and not committed does not count for any purpose under this Agreement."* The
+findings ledger is the single artifact that cannot afford uncommitted rows, and
+it had four.
+
+**Closed in `7182fd8`.** The maintainer reconstructed rows 23-26 from the session
+record and committed them, with the violation itself noted in the commit message.
+This document's rows resume at 27, so the references that were already in
+circulation stay valid and the ledger now reads 1-42 unbroken. The row remains
+in the ledger because a findings ledger records what happened, not only what is
+still broken.
 
 ---
 
