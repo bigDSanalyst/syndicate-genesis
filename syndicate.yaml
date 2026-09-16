@@ -15,10 +15,12 @@ members:   # ONE ROW PER MEMBER, EDIT AT GENESIS
 governance:
   decision_rule: "majority"
   objection_window_days: 7
-  review_gates:   # NOTE: gates auto-cap at members-1; a gate higher than that deadlocks
-    "vault/40-drafts/**": 0
-    "ledger/**": 0
-    "agreements/**": 0
+  review_gates:   # NOTE: cap at max(members-1, 1). A gate above members-1 deadlocks;
+                # a gate of 0 is not a fix - it removes review entirely, and
+                # Agreement 10.1 needs at least one approving review to exist.
+    "vault/40-drafts/**": 1
+    "ledger/**": 1
+    "agreements/**": 1
 
 attribution:
   clock: "push-webhook"   # v1 tooling uses committer dates; see attribution.py docstring

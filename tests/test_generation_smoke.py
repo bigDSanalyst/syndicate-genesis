@@ -53,6 +53,15 @@ def generated(tmp_path):
     return repo
 
 
+def provision(repo):
+    """Replace the template's placeholder member - the step a real syndicate
+    takes at genesis, and the one anchor.py now requires before it will stamp."""
+    m = repo / "syndicate.yaml"
+    m.write_text(m.read_text(encoding="utf-8").replace('"github-handle"', '"realmember"'),
+                 encoding="utf-8")
+    return repo
+
+
 # ─────────────────────────── the adopter path ────────────────────────────
 
 def test_join_can_parse_the_manifest_it_ships_with(generated, monkeypatch):
@@ -101,6 +110,7 @@ def test_join_never_persists_a_token(generated, monkeypatch):
 
 def test_anchor_run_then_verify(generated):
     """anchor.py run -> verify must produce a chain that validates."""
+    provision(generated)
     r = subprocess.run([sys.executable, str(TOOLS / "anchor.py"), "run",
                         "--repo", str(generated)], text=True, capture_output=True)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -128,6 +138,7 @@ def test_anchor_run_then_verify(generated):
 
 def test_anchor_is_idempotent_on_the_same_head(generated):
     """Re-anchoring an unchanged HEAD must not fork the chain."""
+    provision(generated)
     for _ in range(2):
         subprocess.run([sys.executable, str(TOOLS / "anchor.py"), "run",
                         "--repo", str(generated)], capture_output=True)
@@ -168,9 +179,19 @@ def test_bot_exclusion_patterns_match_real_bots(generated):
 def test_review_gates_cannot_deadlock(generated):
     """A gate above members-1 can never be satisfied. Fail generation, not merge."""
     cfg = yaml.safe_load((generated / "syndicate.yaml").read_text(encoding="utf-8"))
+
+    # A gate of 0 is never right, in a mold or a syndicate: it does not relax
+    # review, it removes it, and Agreement 10.1 needs at least one approving
+    # review to be deliverable. Checked before the mold skip, because skipping
+    # here is how gates of 0 reached main unnoticed.
+    for path, gate in cfg["governance"]["review_gates"].items():
+        assert gate >= 1, (
+            path + " gate is 0 - that removes review entirely rather than "
+            "capping it; the floor is max(members-1, 1)")
+
     if any(m.get("github") == "github-handle" for m in cfg["members"]):
         pytest.skip("unedited template manifest - a mold is not a syndicate "
-                    "(operator rule #10). This guard binds at genesis.")
+                    "(operator rule #10). The deadlock check binds at genesis.")
     cap = max(len(cfg["members"]) - 1, 1)
     for path, gate in cfg["governance"]["review_gates"].items():
         assert gate <= cap, (
@@ -361,3 +382,32 @@ def test_ingest_is_idempotent_across_runs(monkeypatch, tmp_path):
     code, out, _ = _ingest(monkeypatch, [ATOM], tmp_path)
     assert code == 0
     assert len(list(out.glob("*.md"))) == 1, "second run duplicated the paper"
+
+
+
+def test_anchor_refuses_to_run_in_a_mold(generated):
+    """Operator rule #10, enforced by the tool rather than by remembering.
+
+    The template's chain was reverted once and recreated by a single dispatch
+    43 minutes later. A guard that only reports the recurrence is not enough
+    when the recurrence is one click.
+    """
+    r = subprocess.run([sys.executable, str(TOOLS / "anchor.py"), "run",
+                        "--repo", str(generated)], text=True, capture_output=True)
+    assert r.returncode != 0, "anchor ran inside an unprovisioned template"
+    assert "refusing to anchor" in (r.stdout + r.stderr)
+    assert not (generated / "ledger" / "anchors" / "log.jsonl").exists(), \
+        "refused but wrote a chain anyway"
+
+
+def test_anchor_still_runs_once_real_members_exist(generated):
+    """The refusal must key on the placeholder row, never on oracle_ref -
+    generated syndicates carry `oracle_ref: template` too, and gating on it
+    would stop real syndicates from anchoring at all."""
+    provision(generated)
+    assert 'oracle_ref: "template"' in (generated / "syndicate.yaml").read_text(encoding="utf-8")
+
+    r = subprocess.run([sys.executable, str(TOOLS / "anchor.py"), "run",
+                        "--repo", str(generated)], text=True, capture_output=True)
+    assert r.returncode == 0, "a provisioned syndicate was blocked: " + r.stdout + r.stderr
+    assert (generated / "ledger" / "anchors" / "log.jsonl").exists()
