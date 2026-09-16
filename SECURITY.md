@@ -17,6 +17,37 @@
 5. **Identity binding drift.** Commits from emails not in `syndicate.yaml`
    are unattributed (the pre-commit hook blocks them locally; CI audits).
 
+## Operator bypass, and what actually constrains the operator
+
+The `main` ruleset requires a pull request. The operator's account sits in its
+bypass list in `always` mode, so a direct push from that account lands anyway -
+the gate on `ledger/**` is advisory against the operator's own token, not
+binding. This is a standing decision, not an oversight, and the reason is
+mechanical:
+
+GitHub's bypass list takes two modes, `always` and `pull_request`. The narrower
+mode exempts pull-request merges only; direct pushes are evaluated. But the
+anchor and ingest workflows push directly to `main` carrying the operator's PAT,
+so they are indistinguishable from the operator at the gate. One bypass entry
+serves both a person and two bots, and narrowing it stops the bots.
+
+What the ruleset does buy is real but narrower than it looks: deletion,
+force-push and the pull-request requirement bind every actor *not* in that one
+bypass row - a future collaborator, a CI token, a compromised credential. Before
+it existed they bound nobody.
+
+**The compensating control is the record itself.** Every bypassed push is still
+a commit: authored, attributed, and swept into the next anchor's manifest and
+from there into Bitcoin. A gate can be walked around. The chain cannot be walked
+back - a rewritten history breaks `anchor.py verify` at the first mismatched
+`prev`, and the mismatch is public. In a no-custody protocol, transparency is
+the deeper control; the gate is the convenient one.
+
+**The path out is a separate identity for the machines** (ledger row 16): a
+GitHub App with its own bypass grant, after which the operator's entry can move
+to `pull_request` and the gate binds the human without stopping the bots. Until
+that exists, this posture stands and is stated here rather than left implied.
+
 ## Cryptographic inventory
 
 | Use | Primitive | PQC horizon |
