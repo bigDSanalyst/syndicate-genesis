@@ -13,7 +13,7 @@ Every row was caught live, in a real repo, by the protocol failing loudly
 | 6 | branch protection off: gate was convention, not enforcement | ruleset with approvals=1, admins included | shakedown |
 | 7 | bot/human push race rejects bot pushes | fetch+rebase before push | workflows |
 | 8 | 'Re-run failed jobs' executes the old workflow file; fixes never run | fresh dispatch rule | operator checklist |
-| 9 | review gates above members-1 deadlock the syndicate | auto-cap gates at genesis | manifest note |
+| 9 | review gates above members-1 deadlock the syndicate | gates set to members-1 (decision A); auto-cap validator queued for template (C) | manifest PR + this row |
 | 10 | attribution default label path NameError | date.fromisoformat import | 3917224 |
 | 11 | template generate API is async; clone races the copy | verify file count, not API response | checklist |
 | 12 | template ran the syndicate pipeline on itself (cron in the mold) | dispatch-only workflows in template; Activation docs | 68a4b8b |
