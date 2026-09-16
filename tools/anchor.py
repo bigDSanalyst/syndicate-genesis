@@ -31,6 +31,31 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 STALE_DAYS = 14
+PLACEHOLDER_HANDLE = "github-handle"
+
+
+def is_unprovisioned_template(repo) -> bool:
+    """True only when the manifest still carries the template's placeholder row.
+
+    A template is the mold, not a syndicate (operator rule #10), and anchoring
+    is a syndicate act: a chain in the mold is inherited by every repo generated
+    from it, whose own first anchor then chains to a manifest describing someone
+    else's tree. This was reverted once and recreated by a single dispatch 43
+    minutes later, so the refusal belongs in the tool rather than in discipline.
+
+    `oracle_ref: "template"` is NOT the marker - generated repos carry it too,
+    and gating on it would stop real syndicates from anchoring. Fails open: only
+    a positive placeholder sighting refuses, because wrongly blocking a live
+    syndicate's priority proof is worse than wrongly allowing a mold's.
+    """
+    manifest = repo / "syndicate.yaml"
+    try:
+        import yaml
+        cfg = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
+        members = cfg.get("members") or []
+        return any(m.get("github") == PLACEHOLDER_HANDLE for m in members if isinstance(m, dict))
+    except Exception:
+        return False
 CORE_FIELDS = ["seq", "anchor_id", "git_head", "git_tree", "manifest", "manifest_sha256", "prev", "created"]
 
 
@@ -272,6 +297,13 @@ def main():
     anchors_dir = repo / "ledger" / "anchors"
     anchors_dir.mkdir(parents=True, exist_ok=True)
     log_path = anchors_dir / "log.jsonl"
+    if args.command in ("run", "milestone") and is_unprovisioned_template(repo):
+        sys.exit(
+            "refusing to anchor: syndicate.yaml still carries the template's\n"
+            "placeholder member row, so this repository is a mold, not a\n"
+            "syndicate. Anchoring here writes a chain that every generated repo\n"
+            "inherits (operator rule #10). Edit the manifest with real members\n"
+            "first; the workflow itself is already proven by its run history.")
     if args.command == "run":
         make_anchor(repo, anchors_dir, log_path)
         ensure_stamps(repo, log_path)
