@@ -106,9 +106,20 @@ def test_anchor_run_then_verify(generated):
     assert r.returncode == 0, r.stdout + r.stderr
     log = generated / "ledger" / "anchors" / "log.jsonl"
     assert log.exists(), "anchor run wrote no log"
-    entry = json.loads(log.read_text().splitlines()[0])
-    assert entry["seq"] == 1 and entry["prev"] is None
+    entries = [json.loads(l) for l in log.read_text().splitlines() if l.strip()]
+
+    # Assert on the entry THIS run created, found by the repo's own HEAD - never
+    # by position. Reading splitlines()[0] passed vacuously the moment the
+    # template began carrying its own chain: the first line was the mold's
+    # entry, not the one under test.
+    head = git("rev-parse", "HEAD", cwd=generated)
+    mine = [e for e in entries if e["git_head"] == head]
+    assert len(mine) == 1, "expected exactly one anchor for this HEAD, got %d" % len(mine)
+    entry = mine[0]
     assert (generated / entry["manifest"]).exists()
+    assert entry["seq"] == 1 and entry["prev"] is None, (
+        "a generated syndicate must begin its own chain, not inherit one: "
+        "got seq=%s prev=%s" % (entry["seq"], entry["prev"]))
 
     v = subprocess.run([sys.executable, str(TOOLS / "anchor.py"), "verify",
                         "--repo", str(generated)], text=True, capture_output=True)
@@ -180,3 +191,76 @@ def test_every_tool_has_a_working_help(generated):
         r = subprocess.run([sys.executable, str(tool), "--help"],
                            text=True, capture_output=True, cwd=generated)
         assert r.returncode == 0, tool.name + " --help failed: " + r.stderr[:200]
+
+
+# ──────────────────────── the workflows themselves ────────────────────────
+
+def _strict_load(path):
+    """Parse YAML rejecting duplicate keys.
+
+    yaml.safe_load silently keeps the last of a duplicated key, which is how
+    a doubled `workflow_dispatch:` survived in two template workflows while
+    GitHub's own parser rejected both files outright. Every dispatch of them
+    ended in startup_failure, and nothing local caught it - the same shape as
+    finding #18 (GitHub's validator catches what safe_load passes).
+    """
+    class StrictLoader(yaml.SafeLoader):
+        pass
+
+    def no_duplicates(loader, node, deep=False):
+        mapping = {}
+        for key_node, value_node in node.value:
+            key = loader.construct_object(key_node, deep=deep)
+            if key in mapping:
+                raise AssertionError("duplicate key %r at line %d"
+                                     % (key, key_node.start_mark.line + 1))
+            mapping[key] = loader.construct_object(value_node, deep=deep)
+        return mapping
+
+    StrictLoader.add_constructor(
+        yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, no_duplicates)
+    with open(path, encoding="utf-8") as fh:
+        return yaml.load(fh, Loader=StrictLoader)
+
+
+def test_workflows_have_no_duplicate_keys(generated):
+    """A workflow GitHub cannot parse is a workflow that has never run."""
+    workflows = sorted((generated / ".github" / "workflows").glob("*.yml"))
+    assert workflows, "no workflows found"
+    for wf in workflows:
+        _strict_load(wf)    # raises AssertionError naming the key and line
+
+
+def test_template_workflows_declare_no_schedule(generated):
+    """Operator rule #10: a template is the mold, not a syndicate.
+
+    Skips the test workflow: proving the mold works is not a syndicate pipeline.
+    """
+    for wf in sorted((generated / ".github" / "workflows").glob("*.yml")):
+        if wf.name == "smoke.yml":
+            continue
+        cfg = _strict_load(wf)
+        triggers = cfg.get(True) or cfg.get("on") or {}    # bare `on:` parses as True
+        assert "schedule" not in triggers, (
+            wf.name + " declares a schedule; templates never run schedules")
+
+
+def test_mold_ships_no_anchor_chain(generated):
+    """A generated syndicate must begin its own chain, not inherit the mold's.
+
+    The template briefly carried ledger/anchors/ after its workflow was
+    un-bricked and dispatched. Every repo generated from it would have started
+    at seq=2, chained to an anchor describing the template's tree rather than
+    its own - and test_anchor_run_then_verify passed vacuously throughout,
+    because it read the first log line instead of the entry for its own HEAD.
+
+    Anchoring is a syndicate act. The mold does not perform it (operator
+    rule #10).
+    """
+    anchors = generated / "ledger" / "anchors"
+    if not anchors.exists():
+        return
+    stale = sorted(p.name for p in anchors.iterdir() if p.name != ".gitkeep")
+    assert not stale, (
+        "the template ships an anchor chain; generated syndicates would "
+        "inherit it: " + ", ".join(stale))
