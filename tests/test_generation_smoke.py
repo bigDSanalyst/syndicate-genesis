@@ -106,9 +106,20 @@ def test_anchor_run_then_verify(generated):
     assert r.returncode == 0, r.stdout + r.stderr
     log = generated / "ledger" / "anchors" / "log.jsonl"
     assert log.exists(), "anchor run wrote no log"
-    entry = json.loads(log.read_text().splitlines()[0])
-    assert entry["seq"] == 1 and entry["prev"] is None
+    entries = [json.loads(l) for l in log.read_text().splitlines() if l.strip()]
+
+    # Assert on the entry THIS run created, found by the repo's own HEAD - never
+    # by position. Reading splitlines()[0] passed vacuously the moment the
+    # template began carrying its own chain: the first line was the mold's
+    # entry, not the one under test.
+    head = git("rev-parse", "HEAD", cwd=generated)
+    mine = [e for e in entries if e["git_head"] == head]
+    assert len(mine) == 1, "expected exactly one anchor for this HEAD, got %d" % len(mine)
+    entry = mine[0]
     assert (generated / entry["manifest"]).exists()
+    assert entry["seq"] == 1 and entry["prev"] is None, (
+        "a generated syndicate must begin its own chain, not inherit one: "
+        "got seq=%s prev=%s" % (entry["seq"], entry["prev"]))
 
     v = subprocess.run([sys.executable, str(TOOLS / "anchor.py"), "verify",
                         "--repo", str(generated)], text=True, capture_output=True)
@@ -232,3 +243,24 @@ def test_template_workflows_declare_no_schedule(generated):
         triggers = cfg.get(True) or cfg.get("on") or {}    # bare `on:` parses as True
         assert "schedule" not in triggers, (
             wf.name + " declares a schedule; templates never run schedules")
+
+
+def test_mold_ships_no_anchor_chain(generated):
+    """A generated syndicate must begin its own chain, not inherit the mold's.
+
+    The template briefly carried ledger/anchors/ after its workflow was
+    un-bricked and dispatched. Every repo generated from it would have started
+    at seq=2, chained to an anchor describing the template's tree rather than
+    its own - and test_anchor_run_then_verify passed vacuously throughout,
+    because it read the first log line instead of the entry for its own HEAD.
+
+    Anchoring is a syndicate act. The mold does not perform it (operator
+    rule #10).
+    """
+    anchors = generated / "ledger" / "anchors"
+    if not anchors.exists():
+        return
+    stale = sorted(p.name for p in anchors.iterdir() if p.name != ".gitkeep")
+    assert not stale, (
+        "the template ships an anchor chain; generated syndicates would "
+        "inherit it: " + ", ".join(stale))
