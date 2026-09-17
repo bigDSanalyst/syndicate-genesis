@@ -40,3 +40,18 @@ what public APIs expose.
 - Automated outreach would convert the protocol's name into spam within
   ~50 messages; quality bar: 'would a thoughtful human have written this
   after reading the work?'
+- **`ingest_people.py` MUST NOT compute, store, or expose any field derived
+  from arXiv endorsement eligibility.** Not "must not rank by it" - must not
+  have the concept. The data model must be unable to express the question
+  "who could endorse me in quant-ph".
+
+  This is a schema constraint rather than a usage policy on purpose. A field
+  that exists will eventually be sorted on by someone under deadline, and a
+  discovery tool that can answer that question is an endorsement-farming tool
+  with a disclaimer on it. arXiv discourages soliciting endorsements from
+  strangers; a campaign built on this protocol would poison its name with the
+  exact community it needs, and the damage is not recoverable by apologising.
+
+  Discovery finds collaborators and relevant authors. Endorsement is asked of
+  someone a member already knows, and what the protocol contributes is the
+  evidence they bring to that conversation - never the conversation itself.
