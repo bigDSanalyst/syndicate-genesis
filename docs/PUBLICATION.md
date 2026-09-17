@@ -4,6 +4,12 @@
 
 ---
 
+> **Scope note.** This document treats the arXiv endorsement gate at length
+> because it is unrecoverable when it bites, not because it is common. Most
+> syndicates will have a member who can submit. The Zenodo-first ordering in
+> §3 stands on its own merits for everyone: it is where data and code get a
+> DOI, ungated, regardless of who is on the roster.
+
 ## 1. Why this tool comes before the ingest tools
 
 `ingest_repos.py` and `ingest_people.py` add intake. Reading was never the
@@ -22,10 +28,16 @@ arXiv's system — external, institutional, and not something a syndicate can
 create, simulate, or approve its way around.
 
 Most researchers never notice it because **institutional affiliation
-auto-endorses**. Which means the gate falls hardest on precisely the people this
-protocol is for: unaffiliated independents, with no university domain to vouch
-for them. A syndicate of three independents may hold zero endorsements between
-them, and no internal governance changes that.
+auto-endorses**, and most adopters of this protocol are expected to be students
+and researchers already publishing - people who hold an endorsement or get one
+from a supervisor without friction. **For them arXiv is available and this
+section is background.**
+
+It matters for the minority it applies to, and there it is absolute. A syndicate
+of unaffiliated independents may hold zero endorsements between them, and no
+amount of internal governance produces one. The failure is quiet and late: it
+surfaces at submission, after the work is done, which is why Activation states
+it at genesis instead.
 
 The protocol therefore has **two single-point external dependencies**, and they
 have the same shape:

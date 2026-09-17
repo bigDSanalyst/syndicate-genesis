@@ -33,7 +33,12 @@ MAX_ATTEMPTS = 4
 BACKOFF_BASE_S = 4
 MAX_RETRY_AFTER_S = 120
 
-REJECTED, TRANSIENT = "rejected", "transient"
+REJECTED, BLOCKED, TRANSIENT = "rejected", "blocked", "transient"
+
+# arXiv answers 406 Not Acceptable to a request that does not say what it will
+# accept. The API speaks Atom; ask for it explicitly rather than relying on a
+# server default that changed under us.
+REQUEST_HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/atom+xml"}
 
 
 def sanitize_filename(title: str) -> str:
@@ -130,7 +135,7 @@ def fetch_once(query: str, max_results: int):
         "sortBy": "submittedDate", "sortOrder": "descending",
     })
     req = urllib.request.Request(f"{ARXIV_API_URL}?{params}",
-        headers={"User-Agent": USER_AGENT})
+        headers=REQUEST_HEADERS)
     with urllib.request.urlopen(req, timeout=30) as resp:
         return ET.fromstring(resp.read())
 
@@ -151,8 +156,13 @@ def fetch_papers(query: str, max_results: int):
             break
         except urllib.error.HTTPError as e:
             if e.code not in RETRY_STATUSES:
-                print(f"  ❌ arXiv rejected this request: HTTP {e.code}")
-                return None, REJECTED
+                # An HTTP-level refusal is a client problem - headers, endpoint,
+                # credentials - and has nothing to do with the search string.
+                # Telling the operator to fix queries.yaml over a 406 sends them
+                # to a correct file; naming the two failures apart is the fix.
+                print(f"  ⛔ arXiv refused the request itself: HTTP {e.code}. "
+                      f"This is a client/header problem, not the query.")
+                return None, BLOCKED
             err, reason = e, f"HTTP {e.code}"
         except Exception as e:                      # timeouts, DNS, reset, bad XML
             err, reason = e, (str(e) or type(e).__name__)
@@ -202,7 +212,7 @@ def main() -> int:
     ids, prefixes = scan_existing(scan_root)
     print(f"vault: {len(ids)} known arXiv ids under {scan_root}")
 
-    new, rejected, transient = 0, 0, 0
+    new, rejected, blocked, transient = 0, 0, 0, 0
     for i, query in enumerate(queries):
         if i:
             time.sleep(REQUEST_GAP_S)
@@ -210,6 +220,9 @@ def main() -> int:
         papers, err = fetch_papers(query, args.max_results)
         if err == REJECTED:
             rejected += 1
+            continue
+        if err == BLOCKED:
+            blocked += 1
             continue
         if err == TRANSIENT:
             transient += 1
@@ -225,7 +238,13 @@ def main() -> int:
             ids.add(paper["id"]); prefixes.add(key); new += 1
             print(f"  ✅ {path.name}")
 
-    print(f"\n{new} new note(s), {rejected} rejected, {transient} transient")
+    print(f"\n{new} new note(s), {rejected} rejected, {blocked} blocked, "
+          f"{transient} transient")
+    if blocked:
+        print(f"FAILED: arXiv refused {blocked} request(s) at the HTTP level. "
+              f"The queries are not the problem - check the request headers "
+              f"and that {ARXIV_API_URL} is still the right endpoint.")
+        return 1
     if rejected:
         print(f"FAILED: {rejected} quer(ies) rejected by arXiv - fix agents/queries.yaml")
         return 1

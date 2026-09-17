@@ -49,9 +49,20 @@ proofs. No custody, no platform — the repo is the sole source of truth.
 The template ships with workflows in **manual-dispatch mode only**: a template is the mold,
 not a syndicate, and its schedules must never run. After generating your repo:
 
-1. **Re-enable schedules** in `.github/workflows/ingest-arxiv.yml` and `anchor.yml`
-   (add the `schedule:` block back under `on:`) — or run everything manually via
-   the *Run workflow* button until you trust the cadence.
+1. **Re-enable the schedule in `anchor.yml`** (add the `schedule:` block back
+   under `on:`). Anchoring works fine on GitHub's hosted runners.
+
+   **Do NOT re-enable the schedule in `ingest-arxiv.yml`** without reading this
+   first: arXiv returns HTTP 406 to GitHub Actions' Azure egress, so a scheduled
+   ingest on a hosted runner fails every morning, permanently. Verified both
+   ways — seven header variants from two repositories all refused from Azure;
+   the identical code and queries ingest cleanly from a Google Cloud address.
+   Nothing client-side fixes it (ledger row 51).
+
+   Run ingestion from an egress arXiv accepts: a self-hosted runner, a notebook,
+   a cron job on a machine you control — anything that is not a GitHub-hosted
+   runner. The tool commits and pushes the notes itself, so the repository stays
+   the record wherever the fetch happens.
 2. **Enable branch protection** on `main` (require PR + 1 approval) — do this BEFORE
    the first signature PR; the template cannot ship this setting.
 3. **Invite members** as collaborators; each edits their `syndicate.yaml` row via PR.
