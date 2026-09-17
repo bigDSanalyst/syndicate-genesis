@@ -10,6 +10,14 @@
 
 ## Mid term
 
+- template drift check: syndicate.yaml records the template commit hash it
+  was generated from; a workflow compares that against the template's current
+  main and reports the diff. Git-native, no version-number bureaucracy, and
+  the diff IS the remediation checklist. Completes the guard symmetry - the
+  smoke suite proves the mold works, nothing yet proves an instance matches
+  the mold it came from. Row 37 fired three times in the session that closed
+  it, and three design-partner tables remediated by hand is the chore that
+  kills adoption.
 - deposit_zenodo.py: gate-approved draft -> Zenodo deposition -> DOI + ORCID
   -> written back and anchored. FIRST in this section deliberately: the only
   unbuilt tool that removes a blocker rather than adding intake, and the one
