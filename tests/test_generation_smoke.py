@@ -525,3 +525,43 @@ def test_repos_dedup_survives_across_runs(monkeypatch, tmp_path):
     assert 'repo_id: "someone/seams"' in next(out.glob("*.md")).read_text(encoding="utf-8")
     code, out, _ = _ingest_repos(monkeypatch, [REPO_PAYLOAD], tmp_path)
     assert len(list(out.glob("*.md"))) == 1, "second run duplicated the repo"
+
+
+def test_attribution_counts_a_members_secondary_email(generated, monkeypatch):
+    """Row 29. A member commits from the web UI under the account noreply and
+    from a laptop under whatever git config says. Keying on one address scored
+    the other at zero, silently, for two weeks. `emails:` lists the rest."""
+    import importlib.util, subprocess as sp
+    provision(generated)
+    m = generated / "syndicate.yaml"
+    m.write_text(m.read_text(encoding="utf-8").replace(
+        '    email: "ID+handle@users.noreply.github.com"',
+        '    email: "ID+handle@users.noreply.github.com"\n'
+        '    emails: ["laptop@example.com"]'), encoding="utf-8")
+
+    # a commit under the SECONDARY address only
+    (generated / "vault" / "20-notes" / "work.md").write_text("x" * 40, encoding="utf-8")
+    git("add", "-A", cwd=generated)
+    git("-c", "user.name=Member", "-c", "user.email=laptop@example.com",
+        "commit", "-q", "-m", "work under the secondary address", cwd=generated)
+    git("remote", "set-url", "origin", "https://github.com/example/syn.git", cwd=generated)
+
+    spec = importlib.util.spec_from_file_location("attribution", TOOLS / "attribution.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod, "api_get", lambda url: ([], ""))
+    monkeypatch.setattr(mod, "api_paged", lambda url: [])
+    monkeypatch.setattr(sys, "argv", ["attribution.py", "--repo", str(generated)])
+    mod.main()
+
+    # Find the row by the member's handle, never by taking the first CSV: the
+    # template ships a placeholder window (github-handle, all zeros) and
+    # rglob picked that up instead of what this run wrote. Third time today a
+    # test read the wrong row - position is not identity.
+    rows = []
+    for csv in (generated / "ledger" / "windows").rglob("attribution.csv"):
+        rows += [ln for ln in csv.read_text().splitlines()
+                 if ln.startswith("realmember,")]
+    assert len(rows) == 1, "expected exactly one row for the provisioned member, got %r" % rows
+    churn = float(rows[0].split(",")[2])
+    assert churn > 0, ("a commit under a listed secondary address scored zero: "
+                       + rows[0])
