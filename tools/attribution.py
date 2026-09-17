@@ -76,6 +76,16 @@ def main():
     patterns = [re.compile(p) for p in cfg["attribution"]["exclude_authors_matching"]]
     def excluded(name, email):
         return any(p.search(name or "") or p.search(email or "") for p in patterns)
+    # A member commits under more than one address in practice: a web-UI commit
+    # uses the account's private noreply, a laptop uses whatever git config says.
+    # Keying attribution on one address means the others score zero silently -
+    # a member had every line of code they wrote counted as nothing for two
+    # weeks because of exactly this (row 29). `emails:` lists the rest; the
+    # primary `email` stays canonical so nothing downstream changes.
+    aliases = {}
+    for m in members:
+        for addr in [m["email"]] + list(m.get("emails") or []):
+            aliases[addr] = m["email"]
     mem_by_email = {m["email"]: m for m in members}
     mem_by_login = {m["github"]: m for m in members}
     head_tree = set(sh("git", "ls-tree", "-r", "--name-only", "HEAD", cwd=repo).splitlines())
@@ -95,7 +105,8 @@ def main():
         fields = ln.split("|")
         if len(fields) == 4 and len(fields[0]) == 40:
             an, ae, cd = fields[1].strip(), fields[2].strip(), fields[3].strip()
-            cur = (ae, cd) if (ae in mem_by_email and start <= cd <= end and not excluded(an, ae)) else None
+            cur = ((aliases[ae], cd) if (ae in aliases and start <= cd <= end
+                                         and not excluded(an, ae)) else None)
         elif cur is not None and ln.count("\t") == 2:
             a, d, f = ln.split("\t")
             try:
