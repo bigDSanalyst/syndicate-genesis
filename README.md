@@ -10,7 +10,14 @@ proofs. No custody, no platform — the repo is the sole source of truth.
 - **agreements/** — the consortium agreement (HAVE COUNSEL REDLINE IT FIRST) + execution log
 - **tools/** — `ingest_arxiv.py` (idempotent literature ingestion), `anchor.py` (OTS priority anchoring via the `ots` CLI), `attribution.py` (per-member share windows)
 - **.github/workflows/** — daily ingestion, weekly + milestone anchoring (self-healing stamps)
+- **audits/** — this syndicate's receipt drawer: what was found wrong in it
+- **tools/drift_check.py** — what the template changed since you generated from it; the diff is the remediation checklist
 - **vault/** — Obsidian workspace scaffold
+
+Three of those are **record organs** — `ledger/` (what this syndicate proved),
+`agreements/` (who it bound), `audits/` (what was found wrong in it). Activation
+strips the template's own narrative (FINDINGS.md, ROADMAP.md, docs/) and never
+touches these: the strip list strips inheritance, not identity.
 
 ## Day-zero sequence
 

@@ -739,3 +739,57 @@ def test_bootstrap_never_strips_the_molds_own_narrative(generated):
     assert (generated / "ROADMAP.md").exists(), "bootstrap stripped the mold's roadmap"
     assert (generated / "docs").is_dir(), "bootstrap stripped the mold's docs"
     assert "mold detected" in r.stdout
+
+
+def test_a_syndicates_own_audit_is_never_drift(generated, monkeypatch, capsys):
+    """The strip list strips inheritance, not identity.
+
+    audits/ is a record organ beside ledger/ and agreements/: an audit written
+    about THIS repo is this repo's history even though it reads like narrative.
+    Its README is the exception - the drawer's label ships from the template.
+    """
+    record_lineage(provision(generated))
+    code, _ = _drift(monkeypatch, generated, [
+        {"sha": UPSTREAM_HEAD},
+        _compare(["audits/AUDIT-001-opus.md", "audits/README.md"])])
+    out = capsys.readouterr().out
+    assert code == 3, "the drawer's label stopped tracking the template"
+    assert "audits/README.md" in out
+    assert "AUDIT-001-opus.md" not in out, "reported a syndicate's own audit as drift"
+
+
+def test_bootstrap_never_strips_the_audits_drawer(generated):
+    """docs/ is inherited and stripped; audits/ is identity and is not."""
+    provision(generated)
+    (generated / "audits").mkdir(exist_ok=True)
+    (generated / "audits" / "AUDIT-001-someone.md").write_text("found\n", encoding="utf-8")
+    git("config", "user.email", "1+founder@users.noreply.github.com", cwd=generated)
+    git("add", "-A", cwd=generated)
+    git("commit", "-q", "-m", "audit", cwd=generated)
+
+    r = subprocess.run(["bash", "bootstrap.sh"], cwd=generated, input="n\n",
+                       text=True, capture_output=True)
+    assert (generated / "audits" / "AUDIT-001-someone.md").exists(), \
+        "bootstrap stripped a record organ: " + r.stdout + r.stderr
+
+
+def test_bootstrap_warns_before_stripping_instance_history_in_docs(generated):
+    """A repo that kept its audit in docs/ must be told before it says yes -
+    the shakedown is exactly that repo, so the warning is not hypothetical."""
+    provision(generated)
+    (generated / "docs" / "AUDIT-001-opus.md").write_text("found\n", encoding="utf-8")
+    git("config", "user.email", "1+founder@users.noreply.github.com", cwd=generated)
+    git("add", "-A", cwd=generated)
+    git("commit", "-q", "-m", "audit in docs", cwd=generated)
+
+    r = subprocess.run(["bash", "bootstrap.sh"], cwd=generated, input="n\n",
+                       text=True, capture_output=True)
+    assert "move them to audits/" in r.stdout, \
+        "offered to delete this repo's own audit without saying so: " + r.stdout
+
+
+def test_template_ships_the_audits_drawer(generated):
+    """An empty convention is a convention nobody follows."""
+    readme = generated / "audits" / "README.md"
+    assert readme.exists(), "template ships no audits/ drawer"
+    assert "strips inheritance, not identity" in readme.read_text(encoding="utf-8")

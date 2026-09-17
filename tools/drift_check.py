@@ -20,6 +20,15 @@ on purpose: a new upstream directory should show up as drift the first time it
 appears, and being told about a file that turns out not to matter is a smaller
 failure than never being told about one that does.
 
+The rule that decides the hard cases: THE STRIP LIST STRIPS INHERITANCE, NOT
+IDENTITY. A repo's record organs - ledger/ (what is proven), agreements/ (who is
+bound), audits/ (what was found wrong) - are the syndicate's own receipts, and
+the protocol exists to preserve them. An audit written about THIS repo is this
+repo's history even though it reads like narrative; the mold's findings are
+someone else's. Hence audits/ is a root directory beside the other record
+organs rather than a docs/ subfolder: docs/ is inherited and stripped, so
+instance-authored history kept there would be one prompt away from deletion.
+
 Commands
 --------
     drift_check.py check     what changed upstream since this repo's lineage commit
@@ -61,16 +70,25 @@ OK, DRIFT, NEEDS_HUMAN, TRANSIENT = 0, 3, 1, 2
 # STRIP_AT_ACTIVATION is the subset bootstrap.sh removes from a generated repo -
 # kept in the same file as the filter so the two can never disagree.
 STRIP_AT_ACTIVATION = ("FINDINGS.md", "ROADMAP.md", "docs/")
-NOT_INHERITED = STRIP_AT_ACTIVATION + (
-    "ledger/",
-    "agreements/EXECUTION-LOG.md",
+
+# Record organs: what this syndicate proved, who it bound, and what was found
+# wrong in it. Instance-owned, never stripped, never drift.
+RECORD_ORGANS = ("ledger/", "agreements/EXECUTION-LOG.md", "audits/")
+
+NOT_INHERITED = STRIP_AT_ACTIVATION + RECORD_ORGANS + (
     "vault/00-inbox/", "vault/10-literature/", "vault/20-notes/",
     "vault/30-experiments/", "vault/40-drafts/", "vault/50-decisions/",
     "vault/maps/",
 )
 
+# The drawer's label is machinery; what goes in the drawer is identity. The
+# convention doc for audits/ ships from the template and should keep tracking it.
+INHERITED_ANYWAY = ("audits/README.md",)
+
 
 def inherited(path: str) -> bool:
+    if path in INHERITED_ANYWAY:
+        return True
     return not any(path == p or path.startswith(p) for p in NOT_INHERITED)
 
 
