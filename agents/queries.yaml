@@ -11,3 +11,14 @@ arxiv_subscriptions:
   - "cat:quant-ph AND cat:math-ph"
   # novelty — wide, capped by --max-results, triage filters
   - "cat:math.NT OR cat:math-ph OR cat:q-bio.NC OR cat:physics.soc-ph"
+
+# Repo subscriptions for ingest_repos.py. Same law as above: comments stay
+# OUTSIDE the quotes (finding #13). Syntax: GitHub code-search qualifiers.
+# Bound the stars - an unbounded query returns celebrity repos and dead ones,
+# and neither is literature.
+github_subscriptions:
+  # the syndicate-detection query: every deployed instance of this protocol,
+  # discoverable by every other one. The growth loop, with no outreach in it.
+  - "syndicate.yaml in:path stars:0..500"
+  # your field, as code rather than papers
+  - "quantum machine learning stars:5..500 pushed:>2026-06-01"

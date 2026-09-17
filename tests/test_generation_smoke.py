@@ -444,3 +444,84 @@ def test_ingest_http_refusal_does_not_blame_the_queries(monkeypatch, tmp_path):
 
     assert code == 1, "an HTTP refusal needs a human, so it must not exit 0 or 2"
     assert calls["n"] == 1, "406 will not heal itself; it must not be retried"
+
+
+# ──────────────────────── the repo ingester ──────────────────────────────
+# GitHub answers 403 for BOTH throttling and refusal, where arXiv uses 429 and
+# 406. Cloning the arXiv skeleton without accounting for that would classify
+# every rate limit as a permanent config error - row 51's mistake, one API over.
+
+REPO_PAYLOAD = json.dumps({"items": [{
+    "full_name": "someone/seams", "html_url": "https://github.com/someone/seams",
+    "description": "Components do not fail alone.", "stargazers_count": 42,
+    "language": "Python", "topics": ["testing"], "pushed_at": "2026-09-01T00:00:00Z",
+    "license": {"spdx_id": "MIT"}}]})
+
+
+def _ingest_repos(monkeypatch, responses, tmp_path, cfg_text=None):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ingest_repos", TOOLS / "ingest_repos.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    seq, calls = list(responses), {"n": 0, "slept": []}
+
+    def fake(req, timeout=None):
+        calls["n"] += 1
+        item = seq.pop(0) if seq else responses[-1]
+        if isinstance(item, Exception):
+            raise item
+        return io.BytesIO(item.encode())
+
+    monkeypatch.setattr(mod.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(mod.time, "sleep", lambda s: calls["slept"].append(s))
+    cfg = tmp_path / "q.yaml"
+    cfg.write_text(cfg_text or 'github_subscriptions:\n  - "seams stars:5..500"\n', encoding="utf-8")
+    out = tmp_path / "vault" / "00-inbox" / "repos"
+    monkeypatch.setattr(sys, "argv", ["ingest_repos.py", "--config", str(cfg), "--out", str(out)])
+    return mod.main(), out, calls
+
+
+def _http(code, headers=None, body=b""):
+    import urllib.error, email.message
+    m = email.message.Message()
+    for k, v in (headers or {}).items():
+        m[k] = v
+    return urllib.error.HTTPError("u", code, "err", m, io.BytesIO(body))
+
+
+def test_repos_rate_limit_403_is_retried_not_treated_as_refusal(monkeypatch, tmp_path):
+    """GitHub throttles with 403, not 429. Reading that as a permanent refusal
+    is how a working tool reports a config error it does not have."""
+    limited = _http(403, {"X-RateLimit-Remaining": "0"})
+    code, out, calls = _ingest_repos(monkeypatch, [limited, REPO_PAYLOAD], tmp_path)
+    assert code == 0, "a throttling 403 that later succeeds must not fail the run"
+    assert calls["n"] == 2 and calls["slept"], "not retried"
+    assert len(list(out.glob("*.md"))) == 1
+
+
+def test_repos_genuine_403_is_not_retried(monkeypatch, tmp_path):
+    """A real authorization failure must fail fast, not hammer a closed door."""
+    forbidden = _http(403, {}, b'{"message":"Bad credentials"}')
+    code, _, calls = _ingest_repos(monkeypatch, [forbidden] * 6, tmp_path)
+    assert code == 1, "a refusal needs a human"
+    assert calls["n"] == 1, "retried a permanent 403: %d calls" % calls["n"]
+
+
+def test_repos_honours_retry_after_on_403(monkeypatch, tmp_path):
+    limited = _http(403, {"Retry-After": "9", "X-RateLimit-Remaining": "0"})
+    code, _, calls = _ingest_repos(monkeypatch, [limited, REPO_PAYLOAD], tmp_path)
+    assert code == 0 and calls["slept"][0] == 9, "Retry-After ignored: %s" % calls["slept"]
+
+
+def test_repos_malformed_query_is_not_a_transport_problem(monkeypatch, tmp_path):
+    """422 means the query is wrong. That one DOES point at queries.yaml."""
+    code, _, calls = _ingest_repos(monkeypatch, [_http(422)] * 4, tmp_path)
+    assert code == 1 and calls["n"] == 1, "a malformed query must not be retried"
+
+
+def test_repos_dedup_survives_across_runs(monkeypatch, tmp_path):
+    """repo_id is the dedup key, same law as arxiv_id (MAP.md law 1)."""
+    code, out, _ = _ingest_repos(monkeypatch, [REPO_PAYLOAD], tmp_path)
+    assert code == 0 and len(list(out.glob("*.md"))) == 1
+    assert 'repo_id: "someone/seams"' in next(out.glob("*.md")).read_text(encoding="utf-8")
+    code, out, _ = _ingest_repos(monkeypatch, [REPO_PAYLOAD], tmp_path)
+    assert len(list(out.glob("*.md"))) == 1, "second run duplicated the repo"
