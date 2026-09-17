@@ -603,11 +603,19 @@ def _compare(files, ahead=3):
     return {"ahead_by": ahead, "files": [{"filename": f} for f in files]}
 
 
-def test_drift_check_refuses_the_mold(generated, monkeypatch):
+def test_drift_check_refuses_the_mold(generated, monkeypatch, capsys):
     """A template has no lineage - it IS the lineage. Same marker anchor.py
-    keys on, so a mold cannot report itself in sync with itself."""
+    keys on, so a mold cannot report itself in sync with itself.
+
+    The lineage is recorded FIRST on purpose. Without it the unrecorded-lineage
+    guard answers too, and this test would pass with the mold check deleted -
+    which is how it was written the first time, and what mutation caught.
+    """
+    record_lineage(generated)
     code, calls = _drift(monkeypatch, generated, [{"sha": UPSTREAM_HEAD}])
     assert code == 1, "the mold drift-checked itself"
+    assert "refusing to drift-check" in capsys.readouterr().out, \
+        "refused for some other reason than being the mold"
     assert calls["n"] == 0, "asked upstream before noticing it was the mold"
 
 
@@ -657,7 +665,7 @@ def test_drift_in_sync_does_not_compare(generated, monkeypatch):
     assert code == 0 and calls["n"] == 1, "compared a head against itself"
 
 
-def test_drift_transient_and_refusal_do_not_share_an_exit_code(generated, monkeypatch):
+def test_drift_transient_and_refusal_do_not_share_an_exit_code(generated, monkeypatch, capsys):
     """Row 51's lesson one API over: 'I could not look' must never read as
     'nothing changed', and must not read as 'fix your config' either."""
     record_lineage(provision(generated))
@@ -667,8 +675,24 @@ def test_drift_transient_and_refusal_do_not_share_an_exit_code(generated, monkey
 
     record_lineage(provision(generated))
     code, calls = _drift(monkeypatch, generated, [_http(404)] * 6)
+    out = capsys.readouterr().out
     assert code == 1, "an unrecognised repo/ref exited %d" % code
     assert calls["n"] == 1, "retried a 404 %d times" % calls["n"]
+    # A 404 and a blanket refusal share an exit code, so the message is the
+    # only thing that separates "your template.repo is wrong" from "your token
+    # is". Assert the message, or the branch is untested.
+    assert "template repo or ref is wrong" in out, \
+        "a 404 was reported without saying what to go and look at"
+
+
+def test_drift_a_disowned_lineage_commit_says_so(generated, monkeypatch, capsys):
+    """422 from compare means upstream cannot reach the recorded commit - a
+    force-push, or a lineage recorded against a fork. Same exit as any other
+    refusal, so again the message is the guard."""
+    record_lineage(provision(generated))
+    code, calls = _drift(monkeypatch, generated, [{"sha": UPSTREAM_HEAD}, _http(422)])
+    assert code == 1 and calls["n"] == 2
+    assert "not an ancestor" in capsys.readouterr().out
 
 
 def test_drift_rate_limit_is_retried_not_read_as_refusal(generated, monkeypatch):
