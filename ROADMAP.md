@@ -23,6 +23,15 @@
   unbuilt tool that removes a blocker rather than adding intake, and the one
   publication route with no institutional gate. Spec and the open provenance
   decision: docs/PUBLICATION.md
+- arxiv-gauge bridges: an externally-built occupancy/digest tool offered to
+  the protocol. Three candidate uses and their preconditions are recorded in
+  docs/DISCOVERY.md - `watch` as a freshness mechanism (needs a policy that
+  does not exist yet), `check` output as Agreement 9.2 evidence once committed
+  and anchored (needs the outcome split first, or a refusal enters the record
+  as an open area), `digest` as a triage hypothesis measurable against the
+  shakedown's 127-of-127 untriaged baseline. Placed AFTER deposit_zenodo.py
+  deliberately: an exit tool outranks intake refinement. Six audited defects
+  and the port-me-back worklist are in the same section.
 - ingest_people.py: candidate discovery via public APIs (GitHub, ORCID,
   arXiv authors) -> 00-inbox/people/ cards; agent-generated outreach
   briefs; the initiator sends. Discovery agentic, transmission human.
