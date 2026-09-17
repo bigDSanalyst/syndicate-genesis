@@ -24,9 +24,15 @@
   (and docs/) at activation and drift_check.py ignores changes to them. The
   operator checklist inherits, because it is distillation rather than story. What
   replaces the stripped files is one line of lineage in the manifest, which is
-  also the drift check's own input. Remaining: an activated syndicate may enable
-  a weekly schedule on drift-check.yml - safe there, unlike ingest-arxiv.yml,
-  because the job only reads the API.
+  also the drift check's own input.
+
+  The rule that decides the hard cases: **the strip list strips inheritance, not
+  identity.** audits/ joins ledger/ and agreements/ as a record organ - an audit
+  written about a repo is that repo's history even when it reads like narrative,
+  so it is a root directory rather than a docs/ subfolder, because docs/ is
+  inherited and stripped. Remaining: an activated syndicate may enable a weekly
+  schedule on drift-check.yml - safe there, unlike ingest-arxiv.yml, because the
+  job only reads the API.
 - deposit_zenodo.py: gate-approved draft -> Zenodo deposition -> DOI + ORCID
   -> written back and anchored. FIRST in this section deliberately: the only
   unbuilt tool that removes a blocker rather than adding intake, and the one

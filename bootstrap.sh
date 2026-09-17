@@ -38,6 +38,13 @@ else
   done
   if [ -n "$STRIP" ]; then
     echo "  Upstream narrative still present:$STRIP"
+    # The strip list strips inheritance, not identity. docs/ is inherited, so
+    # anything this syndicate wrote about itself must move to audits/ first -
+    # that drawer is a record organ and is never stripped.
+    if [ -n "$(find docs -type f -name 'AUDIT-*' 2>/dev/null)" ]; then
+      echo "  ⚠ docs/ contains AUDIT-* files. Those are THIS repo's history:"
+      echo "    move them to audits/ before answering yes."
+    fi
     read -rp "  Remove it? Template keeps the originals. [y/N] " r
     if [ "$r" = "y" ]; then
       rm -rf $STRIP
