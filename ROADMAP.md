@@ -10,14 +10,23 @@
 
 ## Mid term
 
-- template drift check: syndicate.yaml records the template commit hash it
-  was generated from; a workflow compares that against the template's current
-  main and reports the diff. Git-native, no version-number bureaucracy, and
-  the diff IS the remediation checklist. Completes the guard symmetry - the
-  smoke suite proves the mold works, nothing yet proves an instance matches
-  the mold it came from. Row 37 fired three times in the session that closed
-  it, and three design-partner tables remediated by hand is the chore that
-  kills adoption.
+- template drift check (shipped): syndicate.yaml records the upstream commit
+  this repo's lineage starts at; tools/drift_check.py diffs it against the
+  template's current head and the diff IS the remediation checklist. Git-native,
+  no version-number bureaucracy. Completes the guard symmetry - the smoke suite
+  proves the mold works, nothing until now proved an instance matches the mold it
+  came from. Row 37 fired three times in the session that closed it, and
+  remediating design-partner repos by hand is the chore that kills adoption.
+
+  Inheritance rule, settled: **instances inherit machinery and rules, never
+  narrative.** FINDINGS.md is the mold's scar tissue and ROADMAP.md is the
+  protocol's priorities rather than the instance's, so bootstrap.sh strips both
+  (and docs/) at activation and drift_check.py ignores changes to them. The
+  operator checklist inherits, because it is distillation rather than story. What
+  replaces the stripped files is one line of lineage in the manifest, which is
+  also the drift check's own input. Remaining: an activated syndicate may enable
+  a weekly schedule on drift-check.yml - safe there, unlike ingest-arxiv.yml,
+  because the job only reads the API.
 - deposit_zenodo.py: gate-approved draft -> Zenodo deposition -> DOI + ORCID
   -> written back and anchored. FIRST in this section deliberately: the only
   unbuilt tool that removes a blocker rather than adding intake, and the one

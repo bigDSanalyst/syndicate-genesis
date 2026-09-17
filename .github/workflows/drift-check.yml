@@ -1,0 +1,24 @@
+name: drift-check
+on:
+  # TEMPLATE MODE: no schedules — a template is the mold, not a syndicate,
+  # and a mold has no lineage to drift from (row 12). drift_check.py refuses
+  # to run here anyway, on the same placeholder-member marker anchor.py uses.
+  #
+  # An activated syndicate may add a schedule: this job only reads the GitHub
+  # API and writes nothing, so a weekly `cron` is safe where ingest-arxiv's
+  # is not. Drift exits 3, so the check goes red when there is something to
+  # apply — which is the point. An empty result stays green.
+  workflow_dispatch: {}
+permissions: {contents: read}
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -r tools/requirements.txt
+      - name: compare this repo's lineage against the template
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python tools/drift_check.py check

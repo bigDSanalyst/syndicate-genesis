@@ -565,3 +565,153 @@ def test_attribution_counts_a_members_secondary_email(generated, monkeypatch):
     churn = float(rows[0].split(",")[2])
     assert churn > 0, ("a commit under a listed secondary address scored zero: "
                        + rows[0])
+
+
+# ───────────────────────── template drift check ──────────────────────────
+LINEAGE = "a" * 40
+UPSTREAM_HEAD = "b" * 40
+
+
+def _drift(monkeypatch, repo, responses, command="check"):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("drift_check", TOOLS / "drift_check.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    seq, calls = list(responses), {"n": 0, "urls": [], "slept": []}
+
+    def fake(req, timeout=None):
+        calls["n"] += 1
+        calls["urls"].append(req.full_url)
+        item = seq.pop(0) if seq else responses[-1]
+        if isinstance(item, Exception):
+            raise item
+        return io.BytesIO(json.dumps(item).encode())
+
+    monkeypatch.setattr(mod.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(mod.time, "sleep", lambda s: calls["slept"].append(s))
+    monkeypatch.setattr(sys, "argv", ["drift_check.py", command, "--repo", str(repo)])
+    return mod.main(), calls
+
+
+def record_lineage(repo, commit=LINEAGE):
+    m = repo / "syndicate.yaml"
+    m.write_text(m.read_text(encoding="utf-8").replace('"RECORD-AT-ACTIVATION"',
+                                                       '"%s"' % commit), encoding="utf-8")
+    return repo
+
+
+def _compare(files, ahead=3):
+    return {"ahead_by": ahead, "files": [{"filename": f} for f in files]}
+
+
+def test_drift_check_refuses_the_mold(generated, monkeypatch):
+    """A template has no lineage - it IS the lineage. Same marker anchor.py
+    keys on, so a mold cannot report itself in sync with itself."""
+    code, calls = _drift(monkeypatch, generated, [{"sha": UPSTREAM_HEAD}])
+    assert code == 1, "the mold drift-checked itself"
+    assert calls["n"] == 0, "asked upstream before noticing it was the mold"
+
+
+def test_unrecorded_lineage_is_never_reported_as_in_sync(generated, monkeypatch):
+    """The failure this whole tool exists to prevent, turned on itself: a repo
+    that never recorded a lineage must say so, not report a clean bill."""
+    provision(generated)
+    code, calls = _drift(monkeypatch, generated, [{"sha": UPSTREAM_HEAD}])
+    assert code == 1, "a repo with no lineage reported %d, not 'needs a human'" % code
+    assert calls["n"] == 0
+
+
+def test_drift_lists_machinery_and_ignores_narrative(generated, monkeypatch, capsys):
+    """Instances inherit machinery and rules, never narrative."""
+    record_lineage(provision(generated))
+    code, _ = _drift(monkeypatch, generated, [
+        {"sha": UPSTREAM_HEAD},
+        _compare(["tools/anchor.py", "FINDINGS.md", "ROADMAP.md",
+                  "docs/DISCOVERY.md", ".github/workflows/anchor.yml"])])
+    out = capsys.readouterr().out
+    assert code == 3, "drift found but exit was %d" % code
+    assert "tools/anchor.py" in out and ".github/workflows/anchor.yml" in out
+    for narrative in ("FINDINGS.md", "ROADMAP.md", "docs/DISCOVERY.md"):
+        assert narrative not in out, narrative + " was reported as drift"
+
+
+def test_narrative_only_change_is_not_drift(generated, monkeypatch):
+    record_lineage(provision(generated))
+    code, _ = _drift(monkeypatch, generated, [
+        {"sha": UPSTREAM_HEAD},
+        _compare(["FINDINGS.md", "ROADMAP.md", "docs/PUBLICATION.md"])])
+    assert code == 0, "the template's own scar tissue was reported as this repo's work"
+
+
+def test_an_unknown_upstream_directory_counts_as_drift(generated, monkeypatch, capsys):
+    """The filter is a denylist on purpose: machinery added upstream after this
+    tool was written must still show up. An allowlist would silently miss it."""
+    record_lineage(provision(generated))
+    code, _ = _drift(monkeypatch, generated, [
+        {"sha": UPSTREAM_HEAD}, _compare(["oracle/kernel.py"])])
+    assert code == 3 and "oracle/kernel.py" in capsys.readouterr().out
+
+
+def test_drift_in_sync_does_not_compare(generated, monkeypatch):
+    record_lineage(provision(generated), commit=UPSTREAM_HEAD)
+    code, calls = _drift(monkeypatch, generated, [{"sha": UPSTREAM_HEAD}])
+    assert code == 0 and calls["n"] == 1, "compared a head against itself"
+
+
+def test_drift_transient_and_refusal_do_not_share_an_exit_code(generated, monkeypatch):
+    """Row 51's lesson one API over: 'I could not look' must never read as
+    'nothing changed', and must not read as 'fix your config' either."""
+    record_lineage(provision(generated))
+    code, calls = _drift(monkeypatch, generated, [_http(503)] * 6)
+    assert code == 2, "a transient failure exited %d" % code
+    assert calls["n"] == 4 and calls["slept"], "gave up without retrying"
+
+    record_lineage(provision(generated))
+    code, calls = _drift(monkeypatch, generated, [_http(404)] * 6)
+    assert code == 1, "an unrecognised repo/ref exited %d" % code
+    assert calls["n"] == 1, "retried a 404 %d times" % calls["n"]
+
+
+def test_drift_rate_limit_is_retried_not_read_as_refusal(generated, monkeypatch):
+    record_lineage(provision(generated))
+    code, calls = _drift(monkeypatch, generated, [
+        _http(403, {"X-RateLimit-Remaining": "0"}),
+        {"sha": UPSTREAM_HEAD}, _compare(["FINDINGS.md"])])
+    assert code == 0 and calls["n"] == 3, "throttling 403 not retried"
+
+
+def test_record_writes_lineage_without_reserialising_the_manifest(generated, monkeypatch):
+    """The manifest is edited in place because re-serialising drops the comments
+    that carry the governance rules - including the gate cap that closed row 9."""
+    provision(generated)
+    manifest = generated / "syndicate.yaml"
+    before = manifest.read_text(encoding="utf-8")
+    assert "cap at max(members-1, 1)" in before
+
+    code, calls = _drift(monkeypatch, generated, [{"sha": UPSTREAM_HEAD}], command="record")
+    after = manifest.read_text(encoding="utf-8")
+    assert code == 0, "record failed"
+    assert UPSTREAM_HEAD in after and "RECORD-AT-ACTIVATION" not in after
+    assert "cap at max(members-1, 1)" in after, "re-serialised and dropped the comments"
+    assert yaml.safe_load(after)["template"]["recorded"], "recorded no date"
+    assert yaml.safe_load(after)["members"] == yaml.safe_load(before)["members"]
+
+
+def test_record_refuses_the_mold(generated, monkeypatch):
+    code, calls = _drift(monkeypatch, generated, [{"sha": UPSTREAM_HEAD}], command="record")
+    assert code == 1 and calls["n"] == 0
+    assert "RECORD-AT-ACTIVATION" in (generated / "syndicate.yaml").read_text(encoding="utf-8")
+
+
+def test_bootstrap_never_strips_the_molds_own_narrative(generated):
+    """bootstrap.sh removes FINDINGS.md and ROADMAP.md from a generated repo.
+    Run inside the mold, that same step would delete the originals - so it is
+    guarded on the placeholder member row, and answering 'yes' cannot override it.
+    """
+    git("config", "user.email", "ID+handle@users.noreply.github.com", cwd=generated)
+    r = subprocess.run(["bash", "bootstrap.sh"], cwd=generated, input="y\n",
+                       text=True, capture_output=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (generated / "FINDINGS.md").exists(), "bootstrap stripped the mold's findings"
+    assert (generated / "ROADMAP.md").exists(), "bootstrap stripped the mold's roadmap"
+    assert (generated / "docs").is_dir(), "bootstrap stripped the mold's docs"
+    assert "mold detected" in r.stdout

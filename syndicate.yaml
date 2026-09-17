@@ -3,6 +3,16 @@ syndicate:
   formed: "YYYY-MM-DD"
   oracle_ref: "template"   # replaced by genesis.sig at provisioning
 
+template:   # lineage. bootstrap.sh records the upstream head at activation;
+            # tools/drift_check.py diffs it against upstream and the diff IS
+            # the remediation checklist. Instances inherit machinery and rules,
+            # never narrative - FINDINGS.md, ROADMAP.md and docs/ are stripped
+            # at activation and live on in the template repo.
+  repo: "bigDSanalyst/syndicate-genesis"
+  ref: "main"
+  commit: "RECORD-AT-ACTIVATION"
+  recorded: ""
+
 members:   # ONE ROW PER MEMBER, EDIT AT GENESIS
   - name: "Full Name"
     github: "github-handle"
