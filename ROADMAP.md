@@ -10,9 +10,16 @@
 
 ## Mid term
 
+- deposit_zenodo.py: gate-approved draft -> Zenodo deposition -> DOI + ORCID
+  -> written back and anchored. FIRST in this section deliberately: the only
+  unbuilt tool that removes a blocker rather than adding intake, and the one
+  publication route with no institutional gate. Spec and the open provenance
+  decision: docs/PUBLICATION.md
 - ingest_people.py: candidate discovery via public APIs (GitHub, ORCID,
   arXiv authors) -> 00-inbox/people/ cards; agent-generated outreach
   briefs; the initiator sends. Discovery agentic, transmission human.
+  MUST NOT model arXiv endorsement eligibility in any form - see the MUST
+  in docs/DISCOVERY.md.
 - ingest_repos.py: same skeleton over GitHub Search — repos as literature;
   the syndicate-detection query (filename:syndicate.yaml) makes every
   deployed syndicate discoverable to every other one

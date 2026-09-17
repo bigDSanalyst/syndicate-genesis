@@ -66,6 +66,16 @@ not a syndicate, and its schedules must never run. After generating your repo:
 2. **Enable branch protection** on `main` (require PR + 1 approval) — do this BEFORE
    the first signature PR; the template cannot ship this setting.
 3. **Invite members** as collaborators; each edits their `syndicate.yaml` row via PR.
+4. **Check your publication route before you need it.** arXiv requires an
+   endorsement for a member's first submission in a category, and unaffiliated
+   researchers are exactly who does not get auto-endorsed by institutional
+   email. If no member holds one, your route is Zenodo (no gate, real DOI) or a
+   journal - not arXiv. This is arXiv's rule, not the protocol's, and no amount
+   of internal approval substitutes for it. See `docs/PUBLICATION.md`.
+5. **Fill in real ORCIDs** for any member who intends to publish. The manifest
+   ships `0000-0000-0000-0000` placeholders; they are fine for membership and
+   useless for deposit, where the ORCID is what ties the work to the person
+   across venues.
 
 Operator rule #10: *if the template's Actions tab shows scheduled runs, something is
 wrong — generated repos run schedules, templates never do.*

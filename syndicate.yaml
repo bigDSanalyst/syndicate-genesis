@@ -32,4 +32,7 @@ attribution:
 
 exit:
   default_split: "per-ledger"
-  archive_targets: [arxiv, zenodo]
+  # Zenodo first, deliberately: it is the route with no institutional gate.
+  # arXiv requires endorsement for a first submission in a category, which a
+  # syndicate of unaffiliated members may hold from nobody - see docs/PUBLICATION.md.
+  archive_targets: [zenodo, arxiv]
