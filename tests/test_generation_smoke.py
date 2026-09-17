@@ -758,17 +758,43 @@ def test_a_syndicates_own_audit_is_never_drift(generated, monkeypatch, capsys):
     assert "AUDIT-001-opus.md" not in out, "reported a syndicate's own audit as drift"
 
 
-def test_bootstrap_never_strips_the_audits_drawer(generated):
-    """docs/ is inherited and stripped; audits/ is identity and is not."""
+def offline_path(tmp_path):
+    """PATH shim that stubs the one bootstrap step which would reach the network.
+
+    The suite is offline by contract; bootstrap's lineage record is the only
+    step that calls out. Stubbing it here keeps that contract and lets the strip
+    itself run for real, which is the part under test.
+    """
+    binf = tmp_path / "shim"
+    binf.mkdir(exist_ok=True)
+    shim = binf / "python3"
+    shim.write_text('#!/bin/sh\n'
+                    'case "$*" in *drift_check.py*) echo "stub: lineage recorded"; exit 0;; esac\n'
+                    'exec %s "$@"\n' % sys.executable, encoding="utf-8")
+    shim.chmod(0o755)
+    env = dict(os.environ, PATH=str(binf) + os.pathsep + os.environ["PATH"])
+    return env
+
+
+def test_bootstrap_never_strips_the_audits_drawer(generated, tmp_path):
+    """docs/ is inherited and stripped; audits/ is identity and is not.
+
+    Answers "y" deliberately. Declining the prompt saves everything, so a test
+    that declines proves nothing about the strip list - which is what mutation
+    caught: adding audits/ to that list left the earlier version green.
+    """
     provision(generated)
     (generated / "audits").mkdir(exist_ok=True)
     (generated / "audits" / "AUDIT-001-someone.md").write_text("found\n", encoding="utf-8")
-    git("config", "user.email", "1+founder@users.noreply.github.com", cwd=generated)
+    # the manifest's own address, so the identity gate does not eat the "y"
+    git("config", "user.email", "ID+handle@users.noreply.github.com", cwd=generated)
     git("add", "-A", cwd=generated)
     git("commit", "-q", "-m", "audit", cwd=generated)
 
-    r = subprocess.run(["bash", "bootstrap.sh"], cwd=generated, input="n\n",
-                       text=True, capture_output=True)
+    r = subprocess.run(["bash", "bootstrap.sh"], cwd=generated, input="y\n",
+                       text=True, capture_output=True, env=offline_path(tmp_path))
+    assert not (generated / "FINDINGS.md").exists(), \
+        "the strip never ran, so this proves nothing: " + r.stdout + r.stderr
     assert (generated / "audits" / "AUDIT-001-someone.md").exists(), \
         "bootstrap stripped a record organ: " + r.stdout + r.stderr
 
@@ -778,7 +804,7 @@ def test_bootstrap_warns_before_stripping_instance_history_in_docs(generated):
     the shakedown is exactly that repo, so the warning is not hypothetical."""
     provision(generated)
     (generated / "docs" / "AUDIT-001-opus.md").write_text("found\n", encoding="utf-8")
-    git("config", "user.email", "1+founder@users.noreply.github.com", cwd=generated)
+    git("config", "user.email", "ID+handle@users.noreply.github.com", cwd=generated)
     git("add", "-A", cwd=generated)
     git("commit", "-q", "-m", "audit in docs", cwd=generated)
 
@@ -793,3 +819,16 @@ def test_template_ships_the_audits_drawer(generated):
     readme = generated / "audits" / "README.md"
     assert readme.exists(), "template ships no audits/ drawer"
     assert "strips inheritance, not identity" in readme.read_text(encoding="utf-8")
+
+
+def test_the_drawer_a_syndicate_inherits_is_empty(generated):
+    """Same shape as the anchor chain: a generated syndicate begins its own.
+
+    An audit OF the template is the template's scar tissue - the same category as
+    FINDINGS.md - so it lives in docs/ and is stripped. If the mold kept one in
+    the drawer instead, every syndicate ever generated would carry someone else's
+    audit as its own history, and the never-strip rule would protect it there
+    forever.
+    """
+    found = [f.name for f in (generated / "audits").iterdir() if f.name != "README.md"]
+    assert not found, "the mold ships audits every instance would inherit: %s" % found

@@ -28,6 +28,16 @@ template's own findings ledger is someone else's.
 never reports it as drift. This README is the exception: it is the drawer's
 label, it ships from the template, and improvements to it should still reach you.
 
+## What the drawer starts with: nothing
+
+A generated syndicate's drawer is empty but for this file, the same way its
+ledger starts with no anchor chain. An audit **of the template** is the
+template's own scar tissue - the same category as its findings ledger - so it
+lives in the template's `docs/` and is stripped at activation. If the mold kept
+one here instead, every syndicate ever generated would inherit someone else's
+audit as its own history, and the never-strip rule would protect it there
+forever.
+
 ## What belongs here
 
 External audits, cold reviews, security reviews, post-incident write-ups — any
