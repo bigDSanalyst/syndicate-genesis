@@ -1,0 +1,23 @@
+name: verify-signatures
+on:
+  # TEMPLATE MODE: no schedules (operator rule #10). A mold has no members
+  # holding keys, and the tool exits 0 there without checking anything.
+  #
+  # An activated syndicate should run this on pull_request, which is where it
+  # earns its place - a commit that cannot be verified should not reach main:
+  #
+  #   pull_request:
+  #   push: {branches: [main]}
+  workflow_dispatch: {}
+permissions: {contents: read}
+jobs:
+  signatures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with: {fetch-depth: 0}    # the rule is about history, not the tip
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with: {python-version: "3.12"}
+      - run: pip install -r tools/requirements.txt
+      - name: every member commit is signed by a key its author's row lists
+        run: python tools/verify_signatures.py

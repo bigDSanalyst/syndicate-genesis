@@ -77,6 +77,49 @@ already has an anchored record. That is how this template's own test instance
 ran for its first week.
 
 
+## Signing your commits
+
+An email in a manifest is a claim anyone can type. A key is possession. Member
+commits after `governance.signing_since` must carry a signature by a key that
+member's own row lists — enforced, not advised, because a rule the machinery
+states and does not enforce is a receipt machine for a later dispute.
+
+Three commands, once:
+
+```bash
+ssh-keygen -t ed25519 -C "you@example.com" -f ~/.ssh/syndicate
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/syndicate.pub
+git config --global commit.gpgsign true
+```
+
+Then add the contents of `~/.ssh/syndicate.pub` to your `keys:` list in
+`syndicate.yaml`, by PR. **That review is the trust decision** — the tool only
+checks arithmetic afterwards. Rotating a key is the same act.
+
+**The web editor will fail this check, by design.** GitHub signs browser edits
+with *GitHub's* key, not yours, and the manifest does not list GitHub. Commit
+locally with your key; the web editor is for README typos, not member work.
+Merge commits are skipped for the same reason — the merge button signs as
+GitHub, and it is the review gate, not a signature, that authorises a merge.
+
+### Why the key and the timestamp are stronger together
+
+Signed commits usually have an ugly problem: when a key is later rotated or
+compromised, nothing says whether a signature predates the compromise, so every
+old signature becomes arguable at once.
+
+This syndicate has an answer it did not have to build. The anchor chain covers
+`git_tree`, which covers the signed commits, and Bitcoin says when. So:
+
+> A commit signed by a key the manifest listed **as of a confirmed anchor**
+> stays verifiable after that key is rotated or revoked.
+
+The anchor already proved *when*. The manifest already proved *who*. Nobody
+needed a third mechanism to answer the question they answer jointly — which is
+what it looks like when parts compose instead of stacking.
+
+
 ## Honest scope (v1)
 
 - Attribution windows use committer dates locally; push-time events are the admissible clock (§4.2) — gate on the events API for production
@@ -118,6 +161,9 @@ not a syndicate, and its schedules must never run. After generating your repo:
    never arrived. It is sticky: the second member ends solo formation, and
    `join.py` clears it in the PR that adds them. See **Running solo** above.
 4. **Invite members** as collaborators; each edits their `syndicate.yaml` row via PR.
+   Each sets `governance.signing_since` to today and adds their signing key —
+   see **Signing your commits** above. Do it before the first member commit;
+   the date is where the rule starts and it cannot reach backwards.
 5. **Check your publication route before you need it.** arXiv requires an
    endorsement for a member's first submission in a category, and unaffiliated
    researchers are exactly who does not get auto-endorsed by institutional

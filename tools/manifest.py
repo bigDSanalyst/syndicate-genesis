@@ -8,6 +8,7 @@ adopter's CI runs). A rule stated twice is a rule that will disagree with itself
 
 SOLO, MULTI = "solo", "multi"
 PLACEHOLDER_HANDLE = "github-handle"
+PLACEHOLDER_EPOCH = "YYYY-MM-DD"
 
 
 def is_unprovisioned_template(cfg) -> bool:
@@ -58,3 +59,44 @@ def formation_ok(cfg):
             "marker is sticky: the second member ends solo formation, in the PR "
             "that adds them. Set it to multi." % len(members))
     return True, ""
+
+
+def member_addresses(cfg):
+    """{address: primary email} over every member's email and emails: aliases."""
+    out = {}
+    for m in cfg.get("members") or []:
+        if not isinstance(m, dict) or not m.get("email"):
+            continue
+        for addr in [m["email"]] + list(m.get("emails") or []):
+            out[addr] = m["email"]
+    return out
+
+
+def member_keys(cfg):
+    """{primary email: [public key lines]} for members who listed any."""
+    out = {}
+    for m in cfg.get("members") or []:
+        if isinstance(m, dict) and m.get("email"):
+            out[m["email"]] = [k for k in (m.get("keys") or []) if str(k).strip()]
+    return out
+
+
+def signing_epoch(cfg):
+    """(epoch, None) or (None, reason). Commits before the epoch are not checked.
+
+    An epoch is required rather than defaulted because every repository that
+    adopts signing has unsigned history behind it - including a freshly
+    generated syndicate, whose first commit GitHub makes and signs with its own
+    key. Defaulting to "all of history" would fail every repo on day one and
+    teach its members to ignore the check; defaulting to "nothing" would ship a
+    rule that never fires. So it is a decision, refused until made - the same
+    shape as governance.formation.
+    """
+    epoch = (cfg.get("governance") or {}).get("signing_since")
+    if not epoch or epoch == PLACEHOLDER_EPOCH:
+        return None, ("governance.signing_since is not set. Put the date this "
+                      "syndicate started signing commits (YYYY-MM-DD) - members "
+                      "configure a key, then that date goes here. Commits before "
+                      "it are not checked; commits after it must be signed by a "
+                      "key this manifest lists for their author.")
+    return str(epoch), None

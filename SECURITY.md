@@ -53,12 +53,33 @@ that exists, this posture stands and is stated here rather than left implied.
 | Use | Primitive | PQC horizon |
 |---|---|---|
 | Anchors, manifests, ledger digests | SHA-256 | safe (Grover only halves strength) |
+| **Member commit signatures (shipped)** | **SSH Ed25519** | **quantum-vulnerable, forward-only — see below** |
 | Bitcoin attestations (OTS) | SHA-256 + Bitcoin ECDSA | ecosystem-level migration, not ours |
 | `genesis.sig` (future, oracle era) | Ed25519 (planned) | **quantum-vulnerable — upgrade path required; re-sign on epoch** |
 | ML-DSA / ML-KEM (future, oracle era) | FIPS 204/203 | the PQC layer; verify implementations with [pq-verify](https://github.com/bigDSanalyst/pq-verify) |
 
 Designated verifier for the PQC layer: **pq-verify** (independent ML-KEM/
-ML-DSA implementation verification against NIST ACVP vectors).
+ML-DSA implementation verification against NIST ACVP vectors). Its workflow
+pins Python 3.12 deliberately — see the comment in `pq-verify.yml.disabled`,
+and the guard that keeps the pin honest.
+
+### Why the signature row says "forward-only"
+
+Commit signatures are the one shipped primitive a quantum adversary threatens,
+and the exposure is narrower than the word "vulnerable" suggests.
+
+A forged Ed25519 signature made in some future cannot insert a commit into a
+tree that Bitcoin already covers. The anchor protects everything signed before
+the break; the key protects only what is signed after it. So the migration is
+**rotation, not re-signing**: `keys:` is a list, rotation is a manifest PR, and
+a commit signed by a key the manifest listed as of a confirmed anchor stays
+verifiable afterwards. The old signatures do not have to be redone, because the
+timestamp already fixed the window they were valid in.
+
+One honest limit: **post-quantum commit signing waits on OpenSSH.** Git signs
+with what ssh supports — ed25519, ecdsa, rsa, the sk- variants — and there is no
+ML-DSA option to select today. The upgrade path is real and it is upstream, not
+ours to schedule. When it arrives, it arrives as another key in the same list.
 
 ## Reporting
 
