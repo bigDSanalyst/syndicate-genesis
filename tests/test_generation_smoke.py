@@ -1111,3 +1111,147 @@ def test_the_counsel_disclaimer_is_where_a_contributor_meets_it(generated):
         text = (generated / path).read_text(encoding="utf-8").lower()
         assert "counsel" in text or "legal advice" in text, \
             path + " carries no counsel disclaimer"
+
+
+# ─────────────────────────── signed commits ──────────────────────────────
+def signing_repo(repo, members=("alpha",)):
+    """Provision with real SSH signing keys and a signing epoch of today."""
+    # Keys live OUTSIDE the repo: `git add -A` would otherwise commit the private
+    # halves and change the very tree under test. ssh needs the private key at
+    # the public key's path minus ".pub", so the pair is never renamed apart.
+    keydir = repo.parent / "keys"
+    keydir.mkdir(exist_ok=True)
+    keys = {}
+    for who in members:
+        priv = keydir / who
+        if not priv.exists():
+            subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "",
+                            "-f", str(priv), "-C", who], check=True)
+        keys[who] = (keydir / (who + ".pub")).read_text(encoding="utf-8").strip()
+
+    m = repo / "syndicate.yaml"
+    t = m.read_text(encoding="utf-8").replace('"github-handle"', '"alpha"').replace(
+        '    email: "ID+handle@users.noreply.github.com"',
+        '    email: "1+alpha@users.noreply.github.com"').replace(
+        'signing_since: "YYYY-MM-DD"', 'signing_since: "2000-01-01"')
+    t = t.replace("    keys: []", '    keys: ["%s"]' % keys["alpha"], 1)
+    for who in members[1:]:
+        t = t.replace("\nmembers:", "\nmembers:", 1)
+        i = re.search(r"(?m)^members:.*$", t).end()
+        t = (t[:i] + '\n  - name: "%s"\n    github: "%s"\n'
+             '    orcid: "0000-0000-0000-0000"\n'
+             '    email: "2+%s@users.noreply.github.com"\n'
+             '    role: "theory"\n    trust_tier: verified\n'
+             '    joined: "2026-09-18"\n    keys: ["%s"]\n' % (who, who, who, keys[who])
+             + t[i:])
+    m.write_text(t, encoding="utf-8")
+    # The harness redirects gpg.ssh.program globally; point it back at ssh-keygen.
+    git("config", "gpg.format", "ssh", cwd=repo)
+    git("config", "gpg.ssh.program", "ssh-keygen", cwd=repo)
+    return repo, keys
+
+
+def sign_commit(repo, who, email, name, signed=True, gitignore=True):
+    (repo / "vault" / "20-notes" / name).write_text("x" * 20, encoding="utf-8")
+    git("add", "-A", cwd=repo)
+    args = ["-c", "user.name=" + who, "-c", "user.email=" + email]
+    if signed:
+        args += ["-c", "user.signingkey=" + str(repo.parent / "keys" / (who + ".pub")),
+                 "-c", "commit.gpgsign=true"]
+    else:
+        args += ["-c", "commit.gpgsign=false"]
+    git(*(args + ["commit", "-q", "-m", "work " + name]), cwd=repo)
+
+
+def run_verify(repo):
+    r = subprocess.run([sys.executable, str(TOOLS / "verify_signatures.py"),
+                        "--repo", str(repo)], text=True, capture_output=True)
+    return r.returncode, r.stdout + r.stderr
+
+
+def test_a_signed_member_commit_passes(generated):
+    repo, _ = signing_repo(generated)
+    sign_commit(repo, "alpha", "1+alpha@users.noreply.github.com", "a.md")
+    code, out = run_verify(repo)
+    assert code == 0, "a properly signed commit was rejected:\n" + out
+
+
+def test_an_unsigned_member_commit_fails(generated):
+    """Fail, not warn. A rule the machinery states and does not enforce is a
+    receipt machine for a later dispute (rows 44 and 48)."""
+    repo, _ = signing_repo(generated)
+    sign_commit(repo, "alpha", "1+alpha@users.noreply.github.com", "a.md", signed=False)
+    code, out = run_verify(repo)
+    assert code == 1, "an unsigned member commit passed:\n" + out
+    assert "not signed" in out
+
+
+def test_a_good_signature_by_another_members_key_fails(generated):
+    """THE one git does not catch.
+
+    `git verify-commit` answers "is this key in the allowed signers file", not
+    "does this key belong to this author": measured here, a commit authored by
+    one member and signed with another's key reports G and exits 0. Binding the
+    fingerprint to the author's own row is the entire guarantee.
+    """
+    repo, _ = signing_repo(generated, members=("alpha", "beta"))
+    # alpha's commit, signed with BETA's key - both keys are in the manifest
+    (repo / "vault" / "20-notes" / "a.md").write_text("x" * 20, encoding="utf-8")
+    git("add", "-A", cwd=repo)
+    git("-c", "user.name=alpha", "-c", "user.email=1+alpha@users.noreply.github.com",
+        "-c", "user.signingkey=" + str(repo.parent / "keys" / "beta.pub"), "-c", "commit.gpgsign=true",
+        "commit", "-q", "-m", "alpha's work, beta's key", cwd=repo)
+
+    # git itself is satisfied - this is the assertion that proves the gap is real
+    signers = repo / "allowed"
+    cfg = yaml.safe_load((repo / "syndicate.yaml").read_text(encoding="utf-8"))
+    signers.write_text("".join(
+        '%s namespaces="git" %s\n' % (m["email"], k)
+        for m in cfg["members"] for k in m["keys"]), encoding="utf-8")
+    g = subprocess.run(["git", "-c", "gpg.ssh.allowedSignersFile=" + str(signers),
+                        "verify-commit", "HEAD"], cwd=repo, capture_output=True)
+    assert g.returncode == 0, "git rejected it after all - re-check the premise"
+
+    code, out = run_verify(repo)
+    assert code == 1, "impersonation passed: a good signature by the wrong " \
+                      "member's key was accepted:\n" + out
+    assert "does not list" in out
+
+
+def test_commits_before_the_epoch_are_not_checked(generated):
+    """Every repo adopting signing has unsigned history behind it."""
+    repo, _ = signing_repo(generated)
+    sign_commit(repo, "alpha", "1+alpha@users.noreply.github.com", "old.md", signed=False)
+    m = repo / "syndicate.yaml"
+    m.write_text(m.read_text(encoding="utf-8").replace(
+        'signing_since: "2000-01-01"', 'signing_since: "2999-01-01"'), encoding="utf-8")
+    code, out = run_verify(repo)
+    assert code == 0, "an unsigned commit before the epoch was checked:\n" + out
+
+
+def test_an_unset_epoch_is_refused_rather_than_defaulted(generated):
+    """Same shape as formation: a decision, refused until made. Defaulting to
+    'all history' fails every repo on day one; defaulting to 'nothing' ships a
+    rule that never fires."""
+    repo, _ = signing_repo(generated)
+    m = repo / "syndicate.yaml"
+    m.write_text(m.read_text(encoding="utf-8").replace(
+        'signing_since: "2000-01-01"', 'signing_since: "YYYY-MM-DD"'), encoding="utf-8")
+    code, out = run_verify(repo)
+    assert code == 1 and "signing_since" in out, out
+
+
+def test_a_non_members_commit_is_ignored_not_failed(generated):
+    """The anchor and ingest bots commit as themselves. They hold no key, are in
+    no manifest row, and have no member to impersonate."""
+    repo, _ = signing_repo(generated)
+    sign_commit(repo, "alpha", "anchor-bot@users.noreply.github.com", "bot.md",
+                signed=False)
+    code, out = run_verify(repo)
+    assert code == 0, "a bot commit was held to the member signing rule:\n" + out
+
+
+def test_the_mold_has_nobody_to_verify(generated):
+    """Operator rule #10: a mold ships a placeholder row and no keys."""
+    code, out = run_verify(generated)
+    assert code == 0 and "not a syndicate yet" in out, out

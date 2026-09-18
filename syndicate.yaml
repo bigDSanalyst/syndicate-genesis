@@ -21,6 +21,10 @@ members:   # ONE ROW PER MEMBER, EDIT AT GENESIS
     role: "theory"
     trust_tier: verified
     joined: "YYYY-MM-DD"
+    keys: []   # your SSH signing public key line(s), e.g.
+               # "ssh-ed25519 AAAAC3Nza... you@example.com". A key is possession;
+               # an email is a claim anyone can type. Adding or rotating one is a
+               # manifest PR through the gate - that review IS the trust decision.
 
 governance:
   # formation: how many people this syndicate runs with. `solo` is supported and
@@ -31,6 +35,12 @@ governance:
   # Sticky: adding the second member clears it in the same PR, and join.py does
   # that for you. See README, "Running solo".
   formation: multi        # multi | solo
+  # The date this syndicate started signing commits. Commits before it are not
+  # checked; member commits after it must carry a signature by a key this
+  # manifest lists for their author. Required, not defaulted: every repo adopting
+  # signing has unsigned history behind it, including the first commit GitHub
+  # makes when you generate from this template and signs with its own key.
+  signing_since: "YYYY-MM-DD"
   decision_rule: "majority"
   objection_window_days: 7
   review_gates:   # NOTE: cap at max(members-1, 1). A gate above members-1 deadlocks;
