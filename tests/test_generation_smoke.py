@@ -1255,3 +1255,20 @@ def test_the_mold_has_nobody_to_verify(generated):
     """Operator rule #10: a mold ships a placeholder row and no keys."""
     code, out = run_verify(generated)
     assert code == 0 and "not a syndicate yet" in out, out
+
+
+def test_the_pq_verify_pin_is_not_widened(generated):
+    """pq-verify's own metadata says Python >=3.8 and its package does not parse
+    below 3.12 (f-string escapes, PEP 701). pip installs it on 3.11 and the
+    import raises. This workflow's pin is the only thing between the integration
+    and that failure, so "widen for compatibility" is guarded against rather
+    than left to a comment nobody reads.
+    """
+    wf = generated / ".github" / "workflows" / "pq-verify.yml.disabled"
+    assert wf.exists(), "the pq-verify workflow is gone"
+    m = re.search(r'python-version:\s*"?(\d+)\.(\d+)"?', wf.read_text(encoding="utf-8"))
+    assert m, "no python-version pinned in the pq-verify workflow"
+    major, minor = int(m.group(1)), int(m.group(2))
+    assert (major, minor) >= (3, 12), (
+        "pq-verify needs Python >= 3.12 to import at all; this workflow asks for "
+        "%d.%d, which installs and then fails at import" % (major, minor))
