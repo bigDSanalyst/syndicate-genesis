@@ -1,0 +1,41 @@
+name: ots-verify
+on:
+  # TEMPLATE MODE: no schedules (operator rule #10). A mold has no chain, and
+  # anchor.py verify returns green on an empty one, so this is a no-op here.
+  #
+  # AN ACTIVATED SYNDICATE SHOULD ADD A WEEKLY SCHEDULE. This job only reads;
+  # it never commits. Unlike ingest-arxiv.yml it has no egress problem, and
+  # unlike drift-check.yml a green run is the normal case, so a red one means
+  # something. Add:
+  #
+  #   schedule:
+  #     - cron: "0 7 * * 1"
+  workflow_dispatch: {}
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with: {python-version: "3.12"}
+      - run: pip install -r tools/requirements.txt
+
+      - name: export the record without git
+        # Verify what a depositor would receive, not what the repo can prove
+        # about itself. The chain has to stand up as a bare directory of files -
+        # no .git, no history, no network - because that is the form it travels
+        # in to Zenodo, to a journal, or to a dispute. Copying it out is what
+        # makes this a test of the artifact rather than of the checkout.
+        run: |
+          mkdir -p /tmp/export
+          tar --exclude=.git -cf - . | (cd /tmp/export && tar -xf -)
+          test ! -e /tmp/export/.git
+
+      - name: verify the anchor chain
+        # Failure here is a FINDING, not something to repair automatically. A
+        # broken chain means tampered bytes, a lost manifest, or an .ots that
+        # covers something other than what the log claims - each needs a human
+        # reading the ledger, and none is fixed by a bot commit. So this job
+        # writes nothing and has no token to write with.
+        run: python tools/anchor.py verify --repo /tmp/export

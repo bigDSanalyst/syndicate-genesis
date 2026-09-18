@@ -1,0 +1,50 @@
+cff-version: 1.2.0
+title: "syndicate-genesis: a GitHub template for self-governing research syndicates"
+message: >-
+  If you use this template, or a syndicate generated from it, please cite it.
+type: software
+authors:
+  # No ORCID is listed. The manifest ships placeholder ORCIDs, and a placeholder
+  # identifier in a citation file is worse than none: it resolves to nothing and
+  # reads as a real claim. Add yours here when you add it to syndicate.yaml, not
+  # before. The guard checks this file for the placeholder pattern, so it is not
+  # written out here either.
+  - family-names: Maino
+    given-names: Nicholas Clifford
+    alias: bigDSanalyst
+repository-code: "https://github.com/bigDSanalyst/syndicate-genesis"
+abstract: >-
+  A GitHub template that turns a repository into a self-governing research
+  collective: git-native attribution from the commit and review record, a
+  consortium agreement executed by pull request against a content hash, and
+  priority proofs anchored to Bitcoin through OpenTimestamps. No external
+  platform, no token, and no account beyond GitHub is required.
+keywords:
+  - research infrastructure
+  - attribution
+  - provenance
+  - open science
+  - OpenTimestamps
+  - reproducible research
+license: MIT
+license-url: "https://github.com/bigDSanalyst/syndicate-genesis/blob/main/LICENSE"
+date-released: "2026-09-02"
+
+# Cite the template. The instances are the evidence that it runs, not separate
+# works: syndicate-shakedown carries the executed agreement and the anchor
+# chain, syndicate-sim carries the first ratified attribution window.
+references:
+  - type: software
+    title: "syndicate-shakedown: cold-start instance of syndicate-genesis"
+    repository-code: "https://github.com/bigDSanalyst/syndicate-shakedown"
+    authors:
+      - family-names: Maino
+        given-names: Nicholas Clifford
+        alias: bigDSanalyst
+  - type: software
+    title: "syndicate-sim: week-one simulation of the syndicate-genesis protocol"
+    repository-code: "https://github.com/bigDSanalyst/syndicate-sim"
+    authors:
+      - family-names: Maino
+        given-names: Nicholas Clifford
+        alias: bigDSanalyst

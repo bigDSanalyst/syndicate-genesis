@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Attribution ledger: per-member shares from the Repository Record (Agreement section 4).
 
+ARITHMETIC CHANGE, 2026-09-18: shares are computed in Decimal, not float. Windows
+computed before this date used binary floats, so recomputing one of them now can
+differ in the last digits. That is a change of instrument, not of the record:
+ratified windows stand as ratified (MAP.md law 4 - corrections are new entries,
+never rewrites), and a diff between an old window and its recomputation is this
+note, not tampering. Any window ratified from here is exact and reproducible.
+
 Sources: git numstat -> churn/breadth (survivorship-weighted); GitHub API ->
 review + merge acts; prompts out of scope (weights renormalized). Identity by
 manifest email/handle; display names are cosmetic. Merge acts credit the merger
@@ -9,19 +16,37 @@ mis-attribute governance acts). Bots excluded via exclude_authors_matching.
 """
 import argparse
 import json
-import math
 import os
 import re
 import subprocess
 import sys
 import urllib.request
 from datetime import date, datetime, timezone, timedelta
+from decimal import Decimal, ROUND_HALF_EVEN, getcontext
 from pathlib import Path
 
 import yaml
 
-SURVIVOR_WEIGHT = 0.3
+# These numbers decide revenue splits (Agreement section 5), so the arithmetic is
+# exact and reproducible rather than platform-dependent. Binary floats make
+# 0.1 + 0.2 != 0.3 and make the result depend on summation order; a member
+# recomputing a window on another machine must get the same digits, or the
+# evidence is not evidence. Logs still need real transcendentals - Decimal.ln()
+# provides them at this precision, deterministically.
+getcontext().prec = 28
+ZERO, ONE = Decimal(0), Decimal(1)
+SURVIVOR_WEIGHT = Decimal("0.3")
 API = "https://api.github.com"
+
+
+def dec(x) -> Decimal:
+    """Decimal from anything, via str: Decimal(0.35) inherits the float's error."""
+    return x if isinstance(x, Decimal) else Decimal(str(x))
+
+
+def q(d: Decimal, places: int) -> Decimal:
+    """Round half-to-even, the banker's rule - unbiased across many windows."""
+    return dec(d).quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_EVEN)
 
 
 def sh(*args, cwd):
@@ -95,7 +120,7 @@ def main():
     if start > end:
         sys.exit("ERROR: --since " + start + " is after --until " + end)
     label = args.label or "{}-W{:02d}".format(*date.fromisoformat(end).isocalendar()[:2])
-    churn = {m["email"]: 0.0 for m in members}
+    churn = {m["email"]: ZERO for m in members}
     files = {m["email"]: set() for m in members}
     log = sh("git", "log", "--pretty=format:%H|%an|%ae|%cd", "--date=short", "--numstat", "HEAD", cwd=repo)
     cur = None
@@ -114,8 +139,8 @@ def main():
                 dels = int(d) if d != "-" else 0
             except ValueError:
                 continue
-            w = 1.0 if f in head_tree else SURVIVOR_WEIGHT
-            churn[cur[0]] += (adds + dels) * w
+            w = ONE if f in head_tree else SURVIVOR_WEIGHT
+            churn[cur[0]] += Decimal(adds + dels) * w
             files[cur[0]].add(f)
     merges = {m["github"]: 0 for m in members}
     reviews = {m["github"]: 0 for m in members}
@@ -138,16 +163,19 @@ def main():
             when = (r_.get("submitted_at") or "")[:10]
             if who in mem_by_login and r_.get("state") in ("APPROVED", "COMMENTED", "CHANGES_REQUESTED") and start <= when <= end:
                 reviews[who] += 1
-    A = {m["email"]: math.log(1 + churn[m["email"]]) for m in members}
-    B = {m["email"]: math.log(1 + len(files[m["email"]])) for m in members}
-    R = {m["github"]: float(reviews[m["github"]] + merges[m["github"]]) for m in members}
+    A = {m["email"]: (ONE + churn[m["email"]]).ln() for m in members}
+    B = {m["email"]: (ONE + Decimal(len(files[m["email"]]))).ln() for m in members}
+    R = {m["github"]: Decimal(reviews[m["github"]] + merges[m["github"]]) for m in members}
     def norm(d):
-        mx = max(d.values()) if d else 0
-        return {k: (v / mx if mx > 0 else 0.0) for k, v in d.items()}
+        mx = max(d.values()) if d else ZERO
+        return {k: (v / mx if mx > 0 else ZERO) for k, v in d.items()}
     An, Bn, Rn = norm(A), norm(B), norm(R)
-    tw = weights["churn"] + weights["breadth"] + weights["review"]
-    x = {m["github"]: (weights["churn"] * An[m["email"]] + weights["breadth"] * Bn[m["email"]] + weights["review"] * Rn[m["github"]]) / tw for m in members}
-    tot = sum(x.values()) or 1.0
+    wc, wb, wr = dec(weights["churn"]), dec(weights["breadth"]), dec(weights["review"])
+    tw = wc + wb + wr
+    x = {m["github"]: (wc * An[m["email"]] + wb * Bn[m["email"]] + wr * Rn[m["github"]]) / tw for m in members}
+    # A window in which nobody did anything divides every share by this 1 and
+    # yields zeros, which is the honest answer - not an equal split of nothing.
+    tot = sum(x.values(), ZERO) or ONE
     shares = {k: v / tot for k, v in x.items()}
     now_s = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     deadline = (datetime.now(timezone.utc) + timedelta(days=window_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -156,9 +184,9 @@ def main():
     rows = ["github,email,churn_w,files,reviews,merges,A_log,B_log,R_acts,x_raw,share"]
     for m in members:
         g = m["github"]
-        rows.append(",".join(str(v) for v in [g, m["email"], round(churn[m["email"]], 1), len(files[m["email"]]), reviews[g], merges[g], round(A[m["email"]], 4), round(B[m["email"]], 4), int(R[g]), round(x[g], 5), round(shares[g], 4)]))
+        rows.append(",".join(str(v) for v in [g, m["email"], q(churn[m["email"]], 1), len(files[m["email"]]), reviews[g], merges[g], q(A[m["email"]], 4), q(B[m["email"]], 4), int(R[g]), q(x[g], 5), q(shares[g], 4)]))
     (out_dir / "attribution.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
-    evidence = {"window": {"label": label, "start": start, "end": end}, "members": members, "weights_used": {"churn": weights["churn"] / tw, "breadth": weights["breadth"] / tw, "review": weights["review"] / tw}, "raw": {m["github"]: {"churn_w": churn[m["email"]], "files": sorted(files[m["email"]]), "reviews": reviews[m["github"]], "merges": merges[m["github"]]} for m in members}, "survivor_weight": SURVIVOR_WEIGHT, "clock": "committer dates; push-time gating is the admissible clock per 4.2 (v1 limitation)", "generated_at": now_s, "objection_deadline": deadline, "window_head": sh("git", "rev-parse", "HEAD", cwd=repo)}
+    evidence = {"window": {"label": label, "start": start, "end": end}, "members": members, "weights_used": {"churn": str(wc / tw), "breadth": str(wb / tw), "review": str(wr / tw)}, "raw": {m["github"]: {"churn_w": str(churn[m["email"]]), "files": sorted(files[m["email"]]), "reviews": reviews[m["github"]], "merges": merges[m["github"]]} for m in members}, "survivor_weight": str(SURVIVOR_WEIGHT), "clock": "committer dates; push-time gating is the admissible clock per 4.2 (v1 limitation)", "generated_at": now_s, "objection_deadline": deadline, "window_head": sh("git", "rev-parse", "HEAD", cwd=repo)}
     (out_dir / "evidence.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print("window", label, start, "->", end)
     for ln in rows: print(ln)

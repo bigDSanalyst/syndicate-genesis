@@ -1,0 +1,21 @@
+# Actions are pinned to commit SHAs (a tag is mutable; a compromised tag moves
+# under you). Pinning without an updater is how a repo ends up three years
+# behind on a security fix, so the two ship together: the pin freezes what runs,
+# this raises the PR that moves it, and the PR goes through the same gate as any
+# other change to the template.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+    commit-message: {prefix: "ci"}
+    labels: ["dependencies"]
+
+  - package-ecosystem: pip
+    directories: ["/tools", "/tests"]
+    schedule: {interval: weekly}
+    commit-message: {prefix: "deps"}
+    labels: ["dependencies"]
+    # opentimestamps-client is pinned deliberately: release 0.4.5 broke imports
+    # and serialization silently (ledger row 3). Read the changelog before
+    # merging a bump, and re-run the anchor path, not just the suite.
