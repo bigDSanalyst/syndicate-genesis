@@ -39,6 +39,41 @@ touches these: the strip list strips inheritance, not identity.
 8. **A green check must never lie** — every deferred failure names its reason
 9. **Email is identity** — manifest email must equal the member's noreply address, or commits vanish from attribution
 
+## Running solo
+
+A syndicate of one is supported, and it has to say so. In `syndicate.yaml`:
+
+```yaml
+governance:
+  formation: solo     # multi | solo
+```
+
+**Why the declaration exists.** A review gate needs someone other than the
+author — GitHub will not let you approve your own pull request, and a gate of 0
+is barred because Agreement §10.1 needs at least one approving review to exist.
+So a one-member manifest deadlocks on its first gated PR, and it looks exactly
+like a two-person syndicate whose second member never arrived. That is not a
+hypothetical: it happened on this repository, in PRs #6–#8, before the guard
+existed. Declaring solo formation is what separates a decision from a
+misconfiguration, and `tools/manifest.py` refuses the undeclared shape so the
+first gated PR is not where you find out.
+
+**What solo actually means.** You merge on your own authority. The repository
+owner's token bypasses the gate (ledger row 48), and the anchor chain is the
+compensating control: what you cannot get from a second reviewer, you get from
+a timestamp nobody can move. The declaration puts that in the manifest, where
+anyone auditing the record can read it rather than infer it.
+
+**It is sticky.** The second member ends solo formation, in the same PR that
+adds them — `tools/join.py` clears the marker for you. Leaving it set would
+have a two-person syndicate declaring itself alone, and the declaration is what
+the bypass rests on, so it must not outlive the roster it describes.
+
+Start alone, prove the machinery on real work, recruit from a repository that
+already has an anchored record. That is how this template's own test instance
+ran for its first week.
+
+
 ## Honest scope (v1)
 
 - Attribution windows use committer dates locally; push-time events are the admissible clock (§4.2) — gate on the events API for production

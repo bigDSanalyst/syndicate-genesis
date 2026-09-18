@@ -16,6 +16,7 @@ exactly the way that produced #38.
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,8 @@ import yaml
 
 TEMPLATE = Path(__file__).resolve().parent.parent
 TOOLS = TEMPLATE / "tools"
+sys.path.insert(0, str(TOOLS))
+from manifest import formation_ok as manifest_formation_ok   # noqa: E402
 
 
 def git(*args, cwd):
@@ -192,6 +195,11 @@ def test_review_gates_cannot_deadlock(generated):
     if any(m.get("github") == "github-handle" for m in cfg["members"]):
         pytest.skip("unedited template manifest - a mold is not a syndicate "
                     "(operator rule #10). The deadlock check binds at genesis.")
+    # The floor of 1 is deliberate and is NOT a claim that one member can satisfy
+    # a gate of 1 - nobody approves their own PR. It exists so a gate can never be
+    # relaxed to 0. What makes a one-member syndicate legitimate is the declared
+    # formation (test_a_solo_syndicate_must_declare_itself); this assertion only
+    # catches gates above the roster.
     cap = max(len(cfg["members"]) - 1, 1)
     for path, gate in cfg["governance"]["review_gates"].items():
         assert gate <= cap, (
@@ -832,3 +840,119 @@ def test_the_drawer_a_syndicate_inherits_is_empty(generated):
     """
     found = [f.name for f in (generated / "audits").iterdir() if f.name != "README.md"]
     assert not found, "the mold ships audits every instance would inherit: %s" % found
+
+
+# ──────────────────────────── solo formation ─────────────────────────────
+def formation_of(repo):
+    cfg = yaml.safe_load((repo / "syndicate.yaml").read_text(encoding="utf-8"))
+    return (cfg.get("governance") or {}).get("formation")
+
+
+def set_manifest(repo, **kw):
+    """Rewrite manifest scalars in place, the way a member editing it would."""
+    m = repo / "syndicate.yaml"
+    t = m.read_text(encoding="utf-8")
+    for key, value in kw.items():
+        t, n = re.subn(r"(?m)^(\s*%s:\s*)\S+" % key, r"\g<1>" + value, t, count=1)
+        assert n == 1, "no %s: line to set" % key
+    m.write_text(t, encoding="utf-8")
+    return repo
+
+
+def add_second_member(repo):
+    m = repo / "syndicate.yaml"
+    t = m.read_text(encoding="utf-8")
+    row = ('\n  - name: "Second"\n    github: "second"\n'
+           '    orcid: "0000-0000-0000-0000"\n'
+           '    email: "2+second@users.noreply.github.com"\n'
+           '    role: "theory"\n    trust_tier: verified\n    joined: "2026-09-18"\n')
+    i = re.search(r"(?m)^members:.*$", t).end()
+    m.write_text(t[:i] + row + t[i:], encoding="utf-8")
+    return repo
+
+
+def test_a_solo_syndicate_must_declare_itself(generated):
+    """One member and no declaration is the shape that always deadlocks.
+
+    It is also indistinguishable from a two-person syndicate whose second member
+    never arrived - which is what happened on this repo in PRs #6-#8. The guard
+    refuses it so the first gated PR is not where an adopter finds out.
+    """
+    provision(generated)
+    cfg = yaml.safe_load((generated / "syndicate.yaml").read_text(encoding="utf-8"))
+    assert len(cfg["members"]) == 1 and formation_of(generated) == "multi", \
+        "fixture is not the undeclared one-member shape"
+
+    ok, why = manifest_formation_ok(cfg)
+    assert not ok, "an undeclared one-member syndicate was accepted"
+    assert "formation: solo" in why, "the refusal does not say how to fix it: " + why
+
+
+def test_a_declared_solo_syndicate_is_allowed(generated):
+    """Solo is supported: the unaffiliated independent usually starts alone, and
+    one human with stakes is a signer seat. The declaration is what makes merging
+    on the founder's own authority legible, with the anchor chain as the
+    compensating control (row 48's posture, stated rather than stumbled into)."""
+    provision(generated)
+    set_manifest(generated, formation="solo")
+    cfg = yaml.safe_load((generated / "syndicate.yaml").read_text(encoding="utf-8"))
+
+    ok, why = manifest_formation_ok(cfg)
+    assert ok, "a declared solo syndicate was refused: " + why
+
+
+def test_the_solo_marker_is_sticky(generated):
+    """A second member ends solo formation. A stale marker would leave a
+    two-person syndicate declaring itself alone - and the declaration is what the
+    bypass posture rests on, so it must not outlive the roster it describes."""
+    provision(generated)
+    set_manifest(generated, formation="solo")
+    add_second_member(generated)
+    cfg = yaml.safe_load((generated / "syndicate.yaml").read_text(encoding="utf-8"))
+    assert len(cfg["members"]) == 2
+
+    ok, why = manifest_formation_ok(cfg)
+    assert not ok, "solo formation survived the arrival of a second member"
+    assert "sticky" in why, why
+
+
+def test_join_clears_the_solo_marker(generated, monkeypatch):
+    """The transition is a governance act, so it rides the PR that causes it.
+    join.py clearing it is what stops the tool handing an adopter a manifest
+    their own suite rejects."""
+    provision(generated)
+    set_manifest(generated, formation="solo")
+    git("add", "-A", cwd=generated)
+    git("commit", "-q", "-m", "solo formation", cwd=generated)
+    git("push", "-q", "origin", "main", cwd=generated)
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: io.BytesIO(
+        json.dumps({"id": 205302507, "login": "second"}).encode()))
+    monkeypatch.setattr(sys, "argv", [
+        "join.py", "--handle", "second", "--name", "Second",
+        "--role", "theory", "--repo", str(generated)])
+    src = (TOOLS / "join.py").read_text(encoding="utf-8")
+    try:
+        exec(compile(src, "join.py", "exec"), {"__name__": "__main__"})
+    except SystemExit as e:
+        assert e.code in (0, None), "join.py failed: " + str(e.code)
+
+    cfg = yaml.safe_load((generated / "syndicate.yaml").read_text(encoding="utf-8"))
+    assert len(cfg["members"]) == 2, "the second member never landed"
+    assert formation_of(generated) == "multi", \
+        "join added the second member and left the syndicate declaring itself solo"
+    ok, why = manifest_formation_ok(cfg)
+    assert ok, why
+
+
+def test_the_mold_is_exempt_from_formation(generated):
+    """A mold is not a syndicate (operator rule #10): it ships one placeholder
+    row and declares nothing, and that is correct rather than undeclared-solo."""
+    cfg = yaml.safe_load((generated / "syndicate.yaml").read_text(encoding="utf-8"))
+    from manifest import is_unprovisioned_template
+    assert is_unprovisioned_template(cfg), "fixture is not a mold"
+    assert len(cfg["members"]) == 1 and \
+        (cfg["governance"].get("formation")) != "solo", "not the shape under test"
+
+    ok, why = manifest_formation_ok(cfg)
+    assert ok, "the template refuses its own shipped manifest: " + why

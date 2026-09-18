@@ -23,6 +23,14 @@ members:   # ONE ROW PER MEMBER, EDIT AT GENESIS
     joined: "YYYY-MM-DD"
 
 governance:
+  # formation: how many people this syndicate runs with. `solo` is supported and
+  # MUST be declared. A one-member manifest without it is the shape that
+  # deadlocks - a review gate nobody else can satisfy (rows 9 and 53) - and it
+  # looks identical to a two-person syndicate whose second member never arrived,
+  # so the guard refuses it rather than letting the first gated PR discover it.
+  # Sticky: adding the second member clears it in the same PR, and join.py does
+  # that for you. See README, "Running solo".
+  formation: multi        # multi | solo
   decision_rule: "majority"
   objection_window_days: 7
   review_gates:   # NOTE: cap at max(members-1, 1). A gate above members-1 deadlocks;

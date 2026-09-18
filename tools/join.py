@@ -87,6 +87,22 @@ def main():
     import yaml    # validate before committing: a broken manifest blocks the whole syndicate (finding #1)
     cfg = yaml.safe_load(txt)
     assert any(m.get('email') == email for m in cfg['members']), 'row not parseable — aborting'
+    # The solo marker is sticky, and this is the transition that clears it: the
+    # same PR that adds the second member ends solo formation, so the gates are
+    # satisfiable by review from the moment there is someone to review. Leaving
+    # it set would keep a two-person syndicate declaring itself alone, which the
+    # guard refuses - so clearing it here is what stops join.py from handing the
+    # adopter a manifest their own suite rejects.
+    if len(cfg['members']) > 1 and (cfg.get('governance') or {}).get('formation') == 'solo':
+        txt, n = re.subn(r'(?m)^(\s*formation:\s*)solo\b', r'\g<1>multi', txt, count=1)
+        if n != 1:
+            sys.exit('ERROR: roster is no longer solo but the formation marker could '
+                     'not be cleared. Set governance.formation to multi by hand, '
+                     'in this same PR, before merging.')
+        manifest.write_text(txt, encoding='utf-8')
+        cfg = yaml.safe_load(txt)
+        print('formation: solo -> multi (the second member ends solo formation)')
+
     print('manifest row inserted and parses cleanly')
 
     remote = sh('git', '-C', '.', 'remote', 'get-url', 'origin', cwd=repo)
