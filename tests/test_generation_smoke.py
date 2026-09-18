@@ -956,3 +956,158 @@ def test_the_mold_is_exempt_from_formation(generated):
 
     ok, why = manifest_formation_ok(cfg)
     assert ok, "the template refuses its own shipped manifest: " + why
+
+
+# ─────────────────────── attribution: exact arithmetic ───────────────────
+def _attribution_mod():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("attribution", TOOLS / "attribution.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    return mod
+
+
+def _run_attribution(repo, monkeypatch, commits):
+    """Drive a window over `commits` = [(email, filename, bytes)], no network."""
+    mod = _attribution_mod()
+    # Land any pending setup (the manifest edit) under a NON-member address
+    # first. Otherwise it rides in the first member's commit and that member
+    # starts the window ahead - which is how the tie test caught this fixture.
+    if git("status", "--porcelain", cwd=repo).strip():
+        git("add", "-A", cwd=repo)
+        git("-c", "user.name=Setup", "-c", "user.email=setup@example.invalid",
+            "commit", "-q", "-m", "setup", cwd=repo)
+    for email, name, size in commits:
+        (repo / "vault" / "20-notes" / name).write_text("x" * size, encoding="utf-8")
+        git("add", "-A", cwd=repo)
+        git("-c", "user.name=M", "-c", "user.email=" + email,
+            "commit", "-q", "-m", "work " + name, cwd=repo)
+    git("remote", "set-url", "origin", "https://github.com/example/syn.git", cwd=repo)
+    monkeypatch.setattr(mod, "api_get", lambda url: ([], ""))
+    monkeypatch.setattr(mod, "api_paged", lambda url: [])
+    monkeypatch.setattr(sys, "argv", ["attribution.py", "--repo", str(repo)])
+    mod.main()
+    shares = {}
+    for csv in (repo / "ledger" / "windows").rglob("attribution.csv"):
+        for ln in csv.read_text(encoding="utf-8").splitlines()[1:]:
+            f = ln.split(",")
+            if f[0] != "github-handle":            # skip the shipped placeholder
+                shares[f[0]] = f[-1]
+    return mod, shares
+
+
+def two_members(repo):
+    """Provisions as two members. Does its own placeholder rename - do NOT
+    call provision() first, or this one finds nothing to replace."""
+    m = repo / "syndicate.yaml"
+    t = m.read_text(encoding="utf-8").replace('"github-handle"', '"alpha"').replace(
+        '    email: "ID+handle@users.noreply.github.com"',
+        '    email: "1+alpha@users.noreply.github.com"')
+    row = ('\n  - name: "Beta"\n    github: "beta"\n'
+           '    orcid: "0000-0000-0000-0000"\n'
+           '    email: "2+beta@users.noreply.github.com"\n'
+           '    role: "theory"\n    trust_tier: verified\n    joined: "2026-09-18"\n')
+    i = re.search(r"(?m)^members:.*$", t).end()
+    m.write_text(t[:i] + row + t[i:], encoding="utf-8")
+    return repo
+
+
+def test_attribution_is_exact_not_floating(generated, monkeypatch):
+    """These numbers decide revenue splits, so they are Decimal end to end.
+
+    Binary floats make the result depend on summation order, so a member
+    recomputing a window on another machine can get different digits - and a
+    number that changes when you recompute it is not evidence.
+    """
+    mod = _attribution_mod()
+    from decimal import Decimal
+    assert isinstance(mod.SURVIVOR_WEIGHT, Decimal), "survivor weight is a float"
+    assert mod.dec(0.35) == Decimal("0.35"), "weights inherit binary float error"
+    assert mod.q(Decimal("0.12345"), 4) == Decimal("0.1234"), "not half-to-even"
+    assert mod.q(Decimal("0.12355"), 4) == Decimal("0.1236")
+
+
+def test_equal_work_splits_exactly_evenly(generated, monkeypatch):
+    """The tie case. Two members, identical work: the shares must be equal to
+    the last digit, not 0.4999/0.5001 from summation order."""
+    two_members(generated)
+    _, shares = _run_attribution(generated, monkeypatch, [
+        ("1+alpha@users.noreply.github.com", "a.md", 40),
+        ("2+beta@users.noreply.github.com", "b.md", 40)])
+    assert set(shares) == {"alpha", "beta"}, shares
+    assert shares["alpha"] == shares["beta"], "identical work split unevenly: %r" % shares
+
+
+def test_a_window_with_no_work_yields_zeros_not_an_equal_split(generated, monkeypatch):
+    """The honest answer to 'nobody did anything' is zero each, not 50/50.
+
+    An equal split of nothing would put unearned shares in the ledger, and the
+    ledger is what a member's claim is read from.
+    """
+    two_members(generated)
+    _, shares = _run_attribution(generated, monkeypatch, [])
+    assert set(shares) == {"alpha", "beta"}, shares
+    assert all(float(v) == 0 for v in shares.values()), \
+        "an empty window invented shares: %r" % shares
+
+
+def test_a_solo_window_gives_the_only_member_everything(generated, monkeypatch):
+    """Solo formation still has to produce a coherent ledger: one member who
+    did the work holds the whole share, with no division-by-zero on the way."""
+    provision(generated)
+    set_manifest(generated, formation="solo")
+    _, shares = _run_attribution(generated, monkeypatch, [
+        ("ID+handle@users.noreply.github.com", "solo.md", 40)])
+    assert list(shares) == ["realmember"], shares
+    assert float(shares["realmember"]) == 1.0, "solo share was not whole: %r" % shares
+
+
+# ────────────────────────── supply chain & record ────────────────────────
+def test_every_action_is_pinned_to_a_commit(generated):
+    """A tag is mutable: whoever controls it can move what runs in CI, with the
+    repo's write token. Disabled workflows are checked too - enabling one must
+    not silently un-pin you."""
+    unpinned = []
+    for wf in sorted((generated / ".github" / "workflows").iterdir()):
+        for i, line in enumerate(wf.read_text(encoding="utf-8").splitlines(), 1):
+            m = re.search(r"uses:\s*([\w./-]+)@(\S+)", line)
+            if m and not re.fullmatch(r"[0-9a-f]{40}", m.group(2)):
+                unpinned.append("%s:%d %s@%s" % (wf.name, i, *m.groups()))
+    assert not unpinned, "actions pinned to mutable refs: " + "; ".join(unpinned)
+
+
+def test_ots_verify_job_reads_and_never_writes(generated):
+    """The chain is solo formation's compensating control, so something has to
+    prove the stored receipts still verify. Failure is a finding, not a repair:
+    a broken chain means tampered bytes or a lost manifest, and neither is fixed
+    by a bot commit - so the job is given no permission to make one."""
+    wf = generated / ".github" / "workflows" / "ots-verify.yml"
+    assert wf.exists(), "no ots-verify workflow"
+    cfg = _strict_load(wf)
+    assert cfg["permissions"] == {"contents": "read"}, \
+        "the verify job can write: " + str(cfg["permissions"])
+    body = wf.read_text(encoding="utf-8")
+    assert "anchor.py verify" in body
+    assert "--exclude=.git" in body, "verifies the checkout, not the bare export"
+    for writer in ("git commit", "git push", "github.token", "secrets."):
+        assert writer not in body, "verify job touches " + writer
+
+
+def test_citation_file_makes_no_identifier_it_cannot_back(generated):
+    """A placeholder ORCID in a citation file resolves to nothing and reads as a
+    real claim. The manifest ships 0000-0000-0000-0000; the citation must not."""
+    cff = generated / "CITATION.cff"
+    assert cff.exists(), "a research-attribution tool with no CITATION.cff"
+    cfg = yaml.safe_load(cff.read_text(encoding="utf-8"))
+    assert {"cff-version", "title", "authors", "message", "type"} <= set(cfg)
+    assert "0000-0000-0000-0000" not in cff.read_text(encoding="utf-8"), \
+        "placeholder ORCID in the citation file"
+
+
+def test_the_counsel_disclaimer_is_where_a_contributor_meets_it(generated):
+    """Three places: the README a visitor reads, the agreement itself, and the
+    PR template of anyone about to change it."""
+    for path in ("README.md", "agreements/consortium-agreement.md",
+                 ".github/pull_request_template.md"):
+        text = (generated / path).read_text(encoding="utf-8").lower()
+        assert "counsel" in text or "legal advice" in text, \
+            path + " carries no counsel disclaimer"

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/bigDSanalyst/syndicate-genesis/security/advisories/new
+    about: Do not open a public issue. Report privately — see SECURITY.md.

@@ -1,5 +1,8 @@
 # Syndicate Genesis
 
+[![smoke](https://github.com/bigDSanalyst/syndicate-genesis/actions/workflows/smoke.yml/badge.svg)](https://github.com/bigDSanalyst/syndicate-genesis/actions/workflows/smoke.yml)
+
+
 Turn a GitHub repository into a self-governing research syndicate: git-native
 attribution, a PR-executed consortium agreement, and Bitcoin-anchored priority
 proofs. No custody, no platform — the repo is the sole source of truth.
