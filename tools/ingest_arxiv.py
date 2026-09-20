@@ -129,6 +129,18 @@ def retry_delay(err, attempt: int) -> float:
     return BACKOFF_BASE_S * (2 ** attempt)
 
 
+ATOM_FEED_TAG = "{http://www.w3.org/2005/Atom}feed"
+
+
+class MalformedResponse(Exception):
+    """The endpoint answered, and the answer was not this API.
+
+    Its own class because it must never be caught by the generic handler and
+    turned into "transient" - and must never become an empty result, which is
+    what it looked like before it had a name.
+    """
+
+
 def fetch_once(query: str, max_results: int):
     params = urllib.parse.urlencode({
         "search_query": query, "max_results": max_results,
@@ -137,7 +149,17 @@ def fetch_once(query: str, max_results: int):
     req = urllib.request.Request(f"{ARXIV_API_URL}?{params}",
         headers=REQUEST_HEADERS)
     with urllib.request.urlopen(req, timeout=30) as resp:
-        return ET.fromstring(resp.read())
+        root = ET.fromstring(resp.read())
+    # Parsing is not answering. An upstream error page - "<html><body>502 Bad
+    # Gateway</body></html>" - is perfectly well-formed XML, so fromstring
+    # succeeds, findall("atom:entry") finds nothing, and the run reports zero
+    # new notes and exits 0. A proxy outage rendered as "arXiv had no papers
+    # for you today". The root tag is the cheapest possible proof that what
+    # came back is the feed we asked for.
+    if root.tag != ATOM_FEED_TAG:
+        raise MalformedResponse(
+            "expected an Atom feed, got root element <%s>" % root.tag)
+    return root
 
 
 def fetch_papers(query: str, max_results: int):
@@ -149,6 +171,7 @@ def fetch_papers(query: str, max_results: int):
     rate limiting looked exactly like a broken subscription.
     """
     root = None
+    malformed = False
     for attempt in range(MAX_ATTEMPTS):
         err = None
         try:
@@ -164,9 +187,19 @@ def fetch_papers(query: str, max_results: int):
                       f"This is a client/header problem, not the query.")
                 return None, BLOCKED
             err, reason = e, f"HTTP {e.code}"
+        except MalformedResponse as e:
+            # Retried like any blip - an error page is often a passing
+            # gateway fault - but never collapsed into "no results".
+            err, reason = e, ("malformed response: %s" % e)
+            malformed = True
         except Exception as e:                      # timeouts, DNS, reset, bad XML
             err, reason = e, (str(e) or type(e).__name__)
         if attempt == MAX_ATTEMPTS - 1:
+            if malformed:
+                print(f"  ⛔ the endpoint answered {MAX_ATTEMPTS} times and "
+                      f"never with a feed ({reason}). Not an empty result - "
+                      f"check that {ARXIV_API_URL} is still the API.")
+                return None, BLOCKED
             print(f"  ⏳ transient failure after {MAX_ATTEMPTS} attempts: {reason}")
             return None, TRANSIENT
         # Hold the exception in a local: sys.exc_info() is already cleared here,

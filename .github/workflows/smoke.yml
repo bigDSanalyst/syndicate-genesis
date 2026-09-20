@@ -17,5 +17,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r tools/requirements.txt -r tests/requirements.txt
-      - name: generate a syndicate and run every tool against it
+      # tests/ is both suites: the generation smoke test (can a syndicate be
+      # generated and can every tool run against it) and the fault matrix
+      # (does any tool exit 0 when the thing it depends on is broken). One
+      # invocation, because a separate step would run the shared fixtures
+      # twice for no added signal.
+      - name: generate a syndicate, run every tool, then break the world
         run: python -m pytest tests/ -q

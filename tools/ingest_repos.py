@@ -130,17 +130,35 @@ def request_headers():
     return h
 
 
+class MalformedResponse(Exception):
+    """The endpoint answered, and the answer was not this API. Its own class
+    so it can never be collapsed into "transient" or into an empty result."""
+
+
 def fetch_once(query: str, per_page: int):
     params = urllib.parse.urlencode({
         "q": query, "per_page": per_page, "sort": "updated", "order": "desc"})
     req = urllib.request.Request(f"{API_URL}?{params}", headers=request_headers())
     with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.load(resp)
+        payload = json.load(resp)
+    # Valid JSON is not a search result. GitHub's search API always returns
+    # both `total_count` and `items`; a body carrying neither is an error
+    # envelope, an auth problem, or a different endpoint - and
+    # payload.get("items", []) rendered every one of them as "your search
+    # matched nothing", exit 0. The absent key IS the signal, so it is read
+    # as one rather than defaulted away.
+    if not isinstance(payload, dict) or "items" not in payload:
+        keys = (", ".join(sorted(payload)[:6]) if isinstance(payload, dict)
+                else type(payload).__name__)
+        raise MalformedResponse(
+            "expected a search result carrying `items`, got {%s}" % keys)
+    return payload
 
 
 def fetch_repos(query: str, per_page: int):
     """(repos, None) on success, or (None, REJECTED | BLOCKED | TRANSIENT)."""
     payload = None
+    malformed = False
     for attempt in range(MAX_ATTEMPTS):
         err = None
         try:
@@ -156,9 +174,18 @@ def fetch_repos(query: str, per_page: int):
                       f"(search is 10 req/min unauthenticated and often refused).")
                 return None, BLOCKED
             err, reason = e, f"HTTP {e.code}"
+        except MalformedResponse as e:
+            err, reason = e, ("malformed response: %s" % e)
+            malformed = True
         except Exception as e:
             err, reason = e, (str(e) or type(e).__name__)
         if attempt == MAX_ATTEMPTS - 1:
+            if malformed:
+                print(f"  ⛔ the endpoint answered {MAX_ATTEMPTS} times and "
+                      f"never with a search result ({reason}). Not an empty "
+                      f"search - check GITHUB_TOKEN and that {API_URL} is "
+                      f"still the endpoint.")
+                return None, BLOCKED
             print(f"  ⏳ transient failure after {MAX_ATTEMPTS} attempts: {reason}")
             return None, TRANSIENT
         delay = retry_delay(err, attempt)

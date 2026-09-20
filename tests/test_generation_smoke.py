@@ -459,7 +459,11 @@ def test_ingest_http_refusal_does_not_blame_the_queries(monkeypatch, tmp_path):
 # 406. Cloning the arXiv skeleton without accounting for that would classify
 # every rate limit as a permanent config error - row 51's mistake, one API over.
 
-REPO_PAYLOAD = json.dumps({"items": [{
+# GitHub's search API always returns total_count alongside items; a
+# fixture missing it is a fixture that has drifted from the API it
+# stands in for (#38, in miniature).
+REPO_PAYLOAD = json.dumps({"total_count": 1, "incomplete_results": False,
+                           "items": [{
     "full_name": "someone/seams", "html_url": "https://github.com/someone/seams",
     "description": "Components do not fail alone.", "stargazers_count": 42,
     "language": "Python", "topics": ["testing"], "pushed_at": "2026-09-01T00:00:00Z",
