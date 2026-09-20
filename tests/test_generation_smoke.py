@@ -1523,3 +1523,52 @@ def test_the_agent_briefs_exit_codes_match_the_tools(generated):
                 "%s %s an exit %s; the brief %s"
                 % (path, "has" if has else "has no", code,
                    "claims it" if code in claimed else "does not claim it"))
+
+
+def test_every_workflow_pins_one_version_of_an_action(generated):
+    """Two ways a pin goes stale that nothing here was watching.
+
+    Dependabot opens a PR against the files that exist when it opens it. A
+    workflow added while that PR is still open is never covered by it, and a
+    merged PR is not revisited - so the new file keeps the old pin until the
+    next release of that action happens to trigger a fresh PR. That is how
+    verify-signatures.yml (added in #23) ended up on setup-python v5.6.0 while
+    every other workflow had moved to v7.0.0 in #19.
+
+    The second way is structural: Dependabot does not parse `.yml.disabled`, so
+    those pins are frozen forever. The suite already insists a disabled
+    workflow be pinned to a SHA, on the reasoning that enabling one must not
+    silently un-pin you - the same reasoning says enabling one must not
+    silently hand you actions from whenever the file was written.
+
+    Limits, stated because a guard that overclaims is worse than none: this is
+    offline, so it cannot check a SHA against the upstream tag. It checks that
+    the repository agrees with itself - one SHA per action, and one version
+    comment per SHA. A comment that lies about its SHA in every file at once
+    survives this; a bump that half-lands does not.
+    """
+    pins = {}            # action -> {sha: [locations]}
+    comments = {}        # sha    -> {comment: [locations]}
+    for wf in sorted((generated / ".github" / "workflows").iterdir()):
+        for i, line in enumerate(wf.read_text(encoding="utf-8").splitlines(), 1):
+            m = re.search(r"uses:\s*([\w./-]+)@([0-9a-f]{40})\s*(?:#\s*(\S+))?", line)
+            if not m:
+                continue
+            action, sha, comment = m.group(1), m.group(2), m.group(3) or "(none)"
+            where = "%s:%d" % (wf.name, i)
+            pins.setdefault(action, {}).setdefault(sha, []).append(where)
+            comments.setdefault(sha, {}).setdefault(comment, []).append(where)
+
+    assert pins, "no pinned actions found - the parse is wrong, not the repo"
+
+    split = {a: v for a, v in pins.items() if len(v) > 1}
+    assert not split, "an action is pinned to more than one commit:\n" + "\n".join(
+        "  %s\n%s" % (action, "\n".join(
+            "    %s  <- %s" % (sha[:12], ", ".join(w)) for sha, w in sorted(versions.items())))
+        for action, versions in sorted(split.items()))
+
+    disagree = {s: v for s, v in comments.items() if len(v) > 1}
+    assert not disagree, "one commit, two version comments:\n" + "\n".join(
+        "  %s: %s" % (sha[:12], "; ".join(
+            "%s at %s" % (c, ", ".join(w)) for c, w in sorted(versions.items())))
+        for sha, versions in sorted(disagree.items()))
