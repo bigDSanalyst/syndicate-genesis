@@ -10,6 +10,14 @@ updates:
     schedule: {interval: weekly}
     commit-message: {prefix: "ci"}
     labels: ["dependencies"]
+    # Two blind spots this cannot cover, both found live (row 59):
+    #   1. A workflow added while an actions PR is already open is not in that
+    #      PR, and a merged PR is never revisited - so the new file keeps the
+    #      old pin until the next release happens to raise a fresh one.
+    #   2. `.yml.disabled` is not parsed at all, so those pins never move.
+    # The suite catches both: every workflow, disabled ones included, must pin
+    # one SHA per action. When a bump lands, check the guard is still green
+    # rather than assuming the PR reached every file.
 
   - package-ecosystem: pip
     directories: ["/tools", "/tests"]
