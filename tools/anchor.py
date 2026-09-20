@@ -19,6 +19,14 @@ marks Bitcoin confirmation. verify works on a bare file export (no git,
 no Bitcoin node); the ots CLI is needed only for .ots digest checks.
 
 Commands: run, upgrade, verify, milestone --tag T --message M.
+
+Exit codes:
+    0  done - every anchor's state was established
+    1  needs a human: an anchor unsubmitted past the stale window, or a broken
+       chain on `verify`
+    2  transient: the OpenTimestamps calendars could not be reached, so some
+       anchors' state is unknown. NOT the same as unconfirmed, which is a
+       statement about Bitcoin rather than about the network.
 """
 import argparse
 import hashlib
@@ -151,6 +159,35 @@ def run_ots(*args):
         return subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="ots timed out")
 
 
+# A calendar we could not talk to is not a calendar that told us "not yet".
+# ots logs one line per calendar it tried; a connection failure looks like
+#   Calendar https://alice.btc.calendar.opentimestamps.org: Tunnel connection failed: 403 Forbidden
+# Read as an allowlist of known-good statuses rather than a denylist of
+# failures, deliberately: an unrecognised status becomes "could not look",
+# which is the safe direction. Claiming "not yet confirmed" about a calendar
+# that never answered is the failure this whole function exists to stop.
+CALENDAR_LINE = re.compile(r"^Calendar\s+(\S+):\s*(.+)$", re.M)
+CALENDAR_OK = ("pending", "attestation", "complete", "success")
+
+
+def calendars_answered(r):
+    """(answered, first_problem). False when no calendar gave us a real answer."""
+    if r is None:
+        return False, "ots was never run"
+    text = ((r.stderr or "") + "\n" + (r.stdout or ""))
+    problems = [(u, t.strip()) for u, t in CALENDAR_LINE.findall(text)
+                if not any(k in t.lower() for k in CALENDAR_OK)]
+    if problems:
+        return False, "%s: %s" % problems[0]
+    if r.returncode != 0 and not CALENDAR_LINE.search(text):
+        # ots failed and said nothing about any calendar - we cannot claim we
+        # looked. "Failed! Timestamp not complete" alone does not distinguish
+        # "the block has not happened yet" from "the network was not there".
+        tail = [l for l in text.strip().splitlines() if l.strip()]
+        return False, (tail[-1] if tail else "ots exited %d with no output" % r.returncode)
+    return True, ""
+
+
 def parse_info(text):
     out = {"digest": None, "confirmed": False, "height": None}
     if not text:
@@ -174,10 +211,20 @@ def info_for(ots_path):
 
 
 def ensure_stamps(repo, log_path):
+    """Returns the number of anchors whose state could not be established.
+
+    Not the number that are unconfirmed - the number nobody managed to ask
+    about. Those are two different facts and this function used to print the
+    first when it meant the second.
+    """
     if not ots_cli():
-        return
+        # The message is printed above, but a message is not an exit code, and
+        # a workflow reads the exit code. Every still-unconfirmed anchor here
+        # is one we did not check.
+        return len([e for e in load_log(log_path) if e["status"] != "confirmed"])
     entries = load_log(log_path)
     changed = False
+    unchecked = 0
     for e in entries:
         manifest = repo / e["manifest"]
         ots = Path(str(manifest) + ".ots")
@@ -195,7 +242,8 @@ def ensure_stamps(repo, log_path):
                 tail = (r.stderr or r.stdout or "").strip().splitlines()
                 print("stamp failed #" + format(e["seq"], "04d") + ": " + (tail[-1] if tail else "unknown"))
         elif e["status"] != "confirmed":
-            run_ots("upgrade", str(ots))
+            r = run_ots("upgrade", str(ots))
+            answered, problem = calendars_answered(r)
             info = parse_info(info_for(ots))
             if e["status"] == "unsubmitted":
                 e["status"] = "pending"
@@ -209,10 +257,17 @@ def ensure_stamps(repo, log_path):
                     e["height"] = info["height"]
                 changed = True
                 print("confirmed #" + format(e["seq"], "04d") + " in Bitcoin (block " + str(info["height"] or "?") + ")")
+            elif not answered:
+                unchecked += 1
+                print("unknown #" + format(e["seq"], "04d") + " - could not reach the "
+                      "calendars, so nothing was checked (" + problem + "). This is "
+                      "NOT 'not yet confirmed': that would be a claim about Bitcoin, "
+                      "and no one answered.")
             else:
                 print("pending #" + format(e["seq"], "04d") + " - not yet in a Bitcoin block")
     if changed:
         rewrite_log(log_path, entries)
+    return unchecked
 
 
 def stale_unsubmitted(log_path):
@@ -304,22 +359,31 @@ def main():
             "syndicate. Anchoring here writes a chain that every generated repo\n"
             "inherits (operator rule #10). Edit the manifest with real members\n"
             "first; the workflow itself is already proven by its run history.")
+    unchecked = 0
     if args.command == "run":
         make_anchor(repo, anchors_dir, log_path)
-        ensure_stamps(repo, log_path)
+        unchecked = ensure_stamps(repo, log_path)
     elif args.command == "upgrade":
-        ensure_stamps(repo, log_path)
+        unchecked = ensure_stamps(repo, log_path)
     elif args.command == "milestone":
         if not (args.tag and args.message):
             sys.exit("milestone requires --tag and --message")
         milestone(repo, anchors_dir, log_path, args.tag, args.message)
-        ensure_stamps(repo, log_path)
+        unchecked = ensure_stamps(repo, log_path)
     elif args.command == "verify":
         return 0 if verify(repo, log_path) else 1
     stale = stale_unsubmitted(log_path)
     if stale:
         print("error: anchors " + str(stale) + " unsubmitted for more than " + str(STALE_DAYS) + " days")
         return 1
+    if unchecked:
+        # Transient, not a failure to route to a human: the calendars were not
+        # reachable, so this run establishes nothing about those anchors. Exit
+        # 0 here would be a green run meaning "I could not look" - operator
+        # rule #8 - in the tool the whole priority claim rests on.
+        print(str(unchecked) + " anchor(s) could not be checked at all. Run this "
+              "again when the network is back; nothing is wrong with the chain.")
+        return 2
     return 0
 
 

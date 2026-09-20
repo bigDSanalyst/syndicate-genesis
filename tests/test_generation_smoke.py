@@ -1524,9 +1524,15 @@ def test_the_agent_briefs_exit_codes_match_the_tools(generated):
         claimed = set(re.findall(r"\b([0-3])\b", codes))
         src = tool.read_text(encoding="utf-8")
 
-        documented = re.search(r"Exit codes[^\n]*\n((?:\s{4}\d.*\n)+)", src)
+        # The block is every indented line after the heading, continuations
+        # included. A previous version required each line to start with four
+        # spaces and a digit, so it stopped at the first wrapped description -
+        # it read anchor.py's "0, 1, 2" as "0, 1" and agreed with a brief that
+        # was already stale. Row 63: the guard parsed less than it looked like
+        # it parsed, and passing meant nothing.
+        documented = re.search(r"Exit codes[^\n]*\n((?:[ \t]+\S.*\n)+)", src)
         if documented:
-            actual = set(re.findall(r"^\s+([0-3])\s", documented.group(1), re.M))
+            actual = set(re.findall(r"^[ \t]{4}([0-3])\s", documented.group(1), re.M))
             assert claimed == actual, (
                 "%s documents exit codes %s; the brief claims %s"
                 % (path, sorted(actual), sorted(claimed)))
@@ -1629,3 +1635,92 @@ def test_the_template_does_not_tell_an_instance_to_import_this_suite(generated):
                  ".github/workflows/anchor.yml", "audits/README.md"):
         assert drift_check.inherited(path), (
             "%s stopped being inherited; the exclusion over-reached" % path)
+
+
+def _ots_shim(tmp_path, body):
+    """A fake `ots` earlier on PATH than any real one. Keeps the suite offline."""
+    d = tmp_path / "shimbin"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / "ots"
+    p.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8")
+    p.chmod(0o755)
+    return d
+
+
+def _run_anchor(repo, env_path, *args):
+    env = dict(os.environ, PATH=str(env_path) + os.pathsep + os.environ["PATH"])
+    r = subprocess.run([sys.executable, str(TOOLS / "anchor.py"), *args, "--repo", str(repo)],
+                       text=True, capture_output=True, env=env)
+    return r.returncode, r.stdout + r.stderr
+
+
+def test_an_unreachable_calendar_is_not_a_pending_anchor(generated, tmp_path):
+    """Row 62, and the one that matters most of these.
+
+    Measured on the live shakedown chain before it was fixed: all four
+    OpenTimestamps calendars refused (`Tunnel connection failed: 403`), `ots`
+    exited 1 - and anchor.py printed "pending #0010 - not yet in a Bitcoin
+    block" and exited 0. The return code was discarded, so a network failure
+    was reported as a statement about Bitcoin.
+
+    That is a green run meaning "I could not look", in the tool the entire
+    priority claim rests on. A member on bad wifi would see "pending" forever
+    and never learn the chain had stopped advancing - and for a solo syndicate
+    the chain is the only external witness there is.
+
+    The fixture reproduces the exact strings that failure produced.
+    """
+    provision(generated)
+    log = generated / "ledger" / "anchors"
+    log.mkdir(parents=True, exist_ok=True)
+    (log / "0001-x.json").write_text('{"a":1}', encoding="utf-8")
+    (log / "0001-x.json.ots").write_text("stub", encoding="utf-8")
+    (log / "log.jsonl").write_text(json.dumps({
+        "seq": 1, "anchor_id": "0001-x", "manifest": "ledger/anchors/0001-x.json",
+        "manifest_sha256": "0" * 64, "status": "pending",
+        "created": "2099-01-01T00:00:00Z"}) + "\n", encoding="utf-8")
+
+    unreachable = _ots_shim(tmp_path, (
+        'if [ "$1" = "upgrade" ]; then\n'
+        '  echo "Calendar https://alice.btc.calendar.opentimestamps.org: '
+        'Tunnel connection failed: 403 Forbidden" >&2\n'
+        '  echo "Failed! Timestamp not complete" >&2\n'
+        '  exit 1\n'
+        'fi\n'
+        'exit 0'))
+    code, out = _run_anchor(generated, unreachable, "upgrade")
+    assert code == 2, (
+        "a network failure exited %d; 0 would be a green run meaning 'I could "
+        "not look', 1 would send a human to fix a chain that is fine:\n%s" % (code, out))
+    assert "could not reach" in out, out
+    assert "not yet in a Bitcoin block" not in out, (
+        "it still claims Bitcoin has not confirmed an anchor nobody asked about:\n" + out)
+
+    # and the honest pending case must stay exit 0, or the fix has just
+    # converted every unconfirmed anchor into a transient error
+    reachable = _ots_shim(tmp_path / "ok", 'exit 0')
+    code, out = _run_anchor(generated, reachable, "upgrade")
+    assert code == 0, "a reachable calendar with nothing new is not an error:\n" + out
+    assert "not yet in a Bitcoin block" in out, out
+
+
+def test_upgrade_without_the_ots_cli_does_not_report_success(generated, tmp_path):
+    """Same failure, second door. With no `ots` on PATH the tool printed its
+    'stamps deferred' line and exited 0 - and a workflow reads the exit code,
+    not the line. Nothing was checked, so the honest answer is transient."""
+    provision(generated)
+    log = generated / "ledger" / "anchors"
+    log.mkdir(parents=True, exist_ok=True)
+    (log / "log.jsonl").write_text(json.dumps({
+        "seq": 1, "anchor_id": "0001-x", "manifest": "ledger/anchors/0001-x.json",
+        "manifest_sha256": "0" * 64, "status": "pending",
+        "created": "2099-01-01T00:00:00Z"}) + "\n", encoding="utf-8")
+
+    empty = tmp_path / "nobin"
+    empty.mkdir(exist_ok=True)
+    env = {"PATH": str(empty), "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")}
+    r = subprocess.run([sys.executable, str(TOOLS / "anchor.py"), "upgrade",
+                        "--repo", str(generated)], text=True, capture_output=True, env=env)
+    assert r.returncode == 2, (
+        "with no ots installed nothing was checked, and it exited %d:\n%s"
+        % (r.returncode, r.stdout + r.stderr))

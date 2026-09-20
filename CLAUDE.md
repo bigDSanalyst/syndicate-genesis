@@ -98,16 +98,22 @@ Read the refusal; it is usually the whole answer.
 | `tools/doctor.py` | where is this syndicate, what is the next command | 0 ok · 1 blocked |
 | `tools/drift_check.py` | what did the template change since we forked | 0 · 1 human · 2 transient · 3 drift |
 | `tools/verify_signatures.py` | is every member commit signed by *that member's* key | 0 · 1 human |
-| `tools/anchor.py` | stamp repository state, upgrade stamps to Bitcoin proofs | 0 · 1 human |
+| `tools/anchor.py` | stamp repository state, upgrade stamps to Bitcoin proofs | 0 · 1 human · 2 transient |
 | `tools/attribution.py` | each member's share of a window | 0 · 1 human |
 | `tools/join.py` | add a member, correctly | 0 · 1 human |
 | `tools/ingest_arxiv.py` | pull literature into the vault, idempotently | 0 · 1 human · 2 transient |
 
 Where a tool has an exit 2, it means *try again later* — a rate limit, a
 timeout, an outage. It is not a failure to route to a human, and it is not a
-reason to retry in a loop. Only `drift_check.py` and `ingest_arxiv.py` have
-one; the rest split 0 / 1, and `drift_check.py` alone uses 3 for "drift found",
-which is actionable rather than an error.
+reason to retry in a loop. `drift_check.py`, `ingest_arxiv.py` and `anchor.py`
+have one; the rest split 0 / 1, and `drift_check.py` alone uses 3 for "drift
+found", which is actionable rather than an error.
+
+`anchor.py`'s exit 2 is worth knowing by name. It means the OpenTimestamps
+calendars could not be reached, so some anchors' state is **unknown** — which
+is not the same as unconfirmed. Unconfirmed is a claim about Bitcoin;
+unreachable is a claim about the network. Reporting the second as the first is
+how a chain silently stops advancing while everything looks normal (row 62).
 
 This table is checked by `tests/test_generation_smoke.py`. If you change a
 tool's exit codes, the guard will tell you that you changed them here too.
