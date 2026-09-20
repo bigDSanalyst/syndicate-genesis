@@ -1572,3 +1572,45 @@ def test_every_workflow_pins_one_version_of_an_action(generated):
         "  %s: %s" % (sha[:12], "; ".join(
             "%s at %s" % (c, ", ".join(w)) for c, w in sorted(versions.items())))
         for sha, versions in sorted(disagree.items()))
+
+
+def test_the_template_does_not_tell_an_instance_to_import_this_suite(generated):
+    """Row 60. The drift checklist is advice an adopter follows literally.
+
+    Measured, not reasoned: copied into a provisioned instance, this suite
+    fails 37 of 75. Eight assert mold behaviour and can never pass there. The
+    rest fail because every fixture here starts by pretending the tree under
+    test still carries the placeholder member row - `provision()` is a no-op in
+    a real syndicate, so `two_members()` yields that repo's actual roster while
+    the assertions name alpha and beta, and `test_doctor_writes_nothing` dies
+    on `git commit` with nothing to commit. No amount of remediation makes
+    those green, because they are not about the instance at all.
+
+    Listing the suite as inherited told every adopter to import something
+    permanently half red, and a check that is always red teaches its reader to
+    ignore CI - operator rule #8 inverted, which is the same failure as a green
+    check that lies.
+
+    The exclusion is not the final answer and this guard does not pretend it
+    is: the suite conflates tests OF GENERATION, template-only by definition,
+    with tests of the machinery's invariants - and one of those, the action-pin
+    guard, is exactly what the shakedown needed and did not have. Splitting
+    them is the fix. Until then the checklist must not give the bad advice.
+    """
+    sys.path.insert(0, str(generated / "tools"))
+    import importlib
+    import drift_check
+    importlib.reload(drift_check)
+
+    for path in ("tests/test_generation_smoke.py", "tests/requirements.txt",
+                 ".github/workflows/smoke.yml"):
+        assert not drift_check.inherited(path), (
+            "the drift checklist tells an instance to import %s, which cannot "
+            "run green there" % path)
+
+    # and the exclusion must not have swallowed the machinery, which is the
+    # whole point of a drift checklist existing
+    for path in ("tools/doctor.py", "tools/manifest.py", "bootstrap.sh",
+                 ".github/workflows/anchor.yml", "audits/README.md"):
+        assert drift_check.inherited(path), (
+            "%s stopped being inherited; the exclusion over-reached" % path)
