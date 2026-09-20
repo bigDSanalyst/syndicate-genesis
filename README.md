@@ -14,6 +14,7 @@ proofs. No custody, no platform — the repo is the sole source of truth.
 - **tools/** — `ingest_arxiv.py` (idempotent literature ingestion), `anchor.py` (OTS priority anchoring via the `ots` CLI), `attribution.py` (per-member share windows)
 - **.github/workflows/** — daily ingestion, weekly + milestone anchoring (self-healing stamps)
 - **audits/** — this syndicate's receipt drawer: what was found wrong in it
+- **tools/doctor.py** — where does this syndicate stand, and what is the next command; read-only, offline, safe to run at any time
 - **tools/drift_check.py** — what the template changed since you generated from it; the diff is the remediation checklist
 - **vault/** — Obsidian workspace scaffold
 
@@ -29,6 +30,41 @@ touches these: the strip list strips inheritance, not identity.
 3. Each member runs `bash bootstrap.sh` locally (identity gate + MCP wiring)
 4. Members sign the agreement: PR adds EXECUTION-LOG row, peer APPROVES, then merge
 5. Dispatch the anchor workflow once — the constitution's first Bitcoin stamp
+
+At any point, `python3 tools/doctor.py` says where you actually are:
+
+```
+$ python3 tools/doctor.py          # abridged; each line below carries a why
+  ok      syndicate.yaml parses, 2 member row(s)
+  ok      review gates are within max(members-1, 1) = 1
+  BLOCK   you commit as you@laptop.local, which no manifest row claims
+          next: git config user.email <your registered address>
+  DECIDE  this syndicate has not set the date it started signing commits
+```
+
+It reads the repository and writes nothing, it never touches the network, and
+it distinguishes three things a first-run check usually conflates: what is
+**wrong now**, what is a **decision you have not made yet** (a fresh syndicate
+owes several — none of them is a fault), and what merely **warrants a look**.
+Each blocked item names the command that clears it. `--json` is the same answer
+in machine form, which is what an agent working in the repo should read instead
+of forming its own impression of the manifest.
+
+## Working here with an agent
+
+`CLAUDE.md` is a brief for any agent working in a repository generated from
+this template, and it is inherited like the rest of the machinery. Its first
+rule is the one that matters: **run `tools/doctor.py --json` and report what it
+returns, rather than reading the manifest and narrating an impression of it.**
+
+That is operator rule #8 generalised. A green check must never lie — and to a
+human reading its output, an agent is a check. Doctor encodes every rule from
+the one module that owns them and cannot be wrong about them in a way this
+repository's own suite does not catch. An agent can. The brief also marks the
+files that are evidence rather than source (the record organs, the anchor
+chain, the hashed agreement text), where the line is between a correction and a
+rewrite, and the one prohibition worth stating outright: never soften a guard
+to make it pass.
 
 ## Operator checklist — lessons this template already paid for
 
