@@ -1,0 +1,29 @@
+# Repository invariants. Unlike smoke.yml this one is INHERITED: it runs in
+# the template and in every syndicate generated from it, because what it
+# asserts is true of any syndicate repository - action pins, workflow
+# permissions, the agent brief's exit-code table, the manifest's bot
+# exclusions.
+#
+# It is separate from smoke.yml precisely so it can travel. smoke.yml runs the
+# generation suite, which assumes the tree under test is still a mold and
+# fails half its assertions in a real syndicate (row 60). Merging the two
+# would hand every adopter a permanently red check, and a permanently red
+# check teaches its reader to ignore CI - operator rule #8 inverted.
+name: invariants
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  invariants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install -r tools/requirements.txt -r tests/requirements.txt
+      - name: assert what is true of any syndicate repository
+        run: python -m pytest tests/test_invariants.py -q
