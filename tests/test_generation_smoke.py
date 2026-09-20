@@ -1272,3 +1272,254 @@ def test_the_pq_verify_pin_is_not_widened(generated):
     assert (major, minor) >= (3, 12), (
         "pq-verify needs Python >= 3.12 to import at all; this workflow asks for "
         "%d.%d, which installs and then fails at import" % (major, minor))
+
+
+# ──────────────────── the helper an adopter meets first ─────────────────────
+#
+# doctor.py is the one command someone runs before anything works, and the
+# agent brief is what an agent reads before it touches the repository. Both are
+# load-bearing in the same way a green check is: they are believed. These
+# guards exist because the cost of a wrong line in either is not a broken
+# build, it is a confident wrong answer.
+
+def run_doctor(repo, *args):
+    r = subprocess.run([sys.executable, str(TOOLS / "doctor.py"), "--repo", str(repo)]
+                       + list(args), text=True, capture_output=True)
+    return r.returncode, r.stdout + r.stderr
+
+
+def doctor_json(repo):
+    code, out = run_doctor(repo, "--json")
+    return code, json.loads(out)
+
+
+def test_doctor_does_not_hand_the_mold_a_wall_of_red(generated):
+    """Operator rule #10: a mold is not a syndicate.
+
+    The template legitimately has no lineage, no keys, no executed agreement
+    and no member whose git identity could match - every one of those is a
+    placeholder waiting for genesis, not a defect. A first-run helper that
+    reports six failures on a repository behaving exactly as designed teaches
+    its reader to ignore it, which is the one thing a helper must not do.
+
+    Asserted on the message, not the exit code: the mold path and a clean
+    syndicate both exit 0, so a code-only assertion would pass for the wrong
+    reason.
+    """
+    code, data = doctor_json(generated)
+    assert code == 0, "doctor blocked on the unmodified template"
+    assert data["is_template"] is True, "doctor did not recognise the mold"
+    keys = {c["check"] for c in data["checks"]}
+    for absent in ("identity", "signing.epoch", "lineage", "agreement", "anchors"):
+        assert absent not in keys, (
+            "doctor asked the mold '%s', a question only a real syndicate can "
+            "answer" % absent)
+
+    _, text = run_doctor(generated)
+    assert "template itself" in text, text
+
+
+def test_doctor_writes_nothing(generated):
+    """It is the first command an adopter runs, often before they trust it.
+
+    A diagnosis that mutates the thing it is diagnosing cannot be run twice
+    with confidence. __pycache__ is excluded because importing a module is how
+    Python works and .gitignore already covers it; everything else must be
+    untouched.
+    """
+    provision(generated)
+    git("add", "-A", cwd=generated)
+    git("commit", "-q", "-m", "provisioned", cwd=generated)
+    before = git("status", "--porcelain", cwd=generated)
+    head = git("rev-parse", "HEAD", cwd=generated)
+
+    run_doctor(generated)
+    run_doctor(generated, "--json")
+
+    after = [ln for ln in git("status", "--porcelain", cwd=generated).splitlines()
+             if "__pycache__" not in ln]
+    assert after == [ln for ln in before.splitlines() if "__pycache__" not in ln], (
+        "doctor changed the working tree: " + "\n".join(after))
+    assert git("rev-parse", "HEAD", cwd=generated) == head, "doctor committed something"
+
+
+def test_doctor_names_a_command_for_everything_it_blocks(generated):
+    """A diagnosis without a next step is a support conversation, not a tool.
+
+    Every BLOCK must carry a fix, and the fix must be an act - a command or a
+    named change - rather than a restatement of the problem.
+    """
+    provision(generated)
+    _, data = doctor_json(generated)
+    blocked = [c for c in data["checks"] if c["status"] == "BLOCK"]
+    assert blocked, "expected a provisioned-but-unconfigured repo to block"
+    for c in blocked:
+        assert c["fix"].strip(), "BLOCK '%s' names no next step" % c["check"]
+        assert c["fix"].strip() != c["headline"].strip()
+    assert data["next"] is not None and data["next"]["fix"].strip()
+
+
+def test_doctor_catches_the_unregistered_author_address(generated):
+    """Operator rule #9, and the failure that never announces itself.
+
+    An unregistered author address does not break a commit. It makes the commit
+    invisible to attribution.py, which scores it zero in every window until
+    someone reconciles a payout by hand. This is the single highest-value thing
+    doctor checks, so it is asserted on the address it found, not just on the
+    status: a check that blocks for some other reason would otherwise pass.
+    """
+    provision(generated)
+    git("config", "user.email", "stranger@example.com", cwd=generated)
+    code, data = doctor_json(generated)
+    assert code == 1
+    ident = [c for c in data["checks"] if c["check"] == "identity"]
+    assert ident and ident[0]["status"] == "BLOCK", data["checks"]
+    assert "stranger@example.com" in ident[0]["headline"]
+
+    # and it clears when the address is one the manifest claims
+    cfg = yaml.safe_load((generated / "syndicate.yaml").read_text(encoding="utf-8"))
+    git("config", "user.email", cfg["members"][0]["email"], cwd=generated)
+    _, data = doctor_json(generated)
+    ident = [c for c in data["checks"] if c["check"] == "identity"]
+    assert ident[0]["status"] == "ok", ident[0]
+
+
+def test_doctor_calls_an_unmade_decision_a_decision(generated):
+    """A fresh syndicate owes several decisions. None of them is a fault.
+
+    signing_since is unset by design - manifest.signing_epoch explains why it
+    is refused rather than defaulted - so reporting it as BLOCK on day zero
+    would be crying wolf at every adopter. It must still name the tool that
+    refuses until the decision is made, or the consequence arrives as a
+    surprise in CI instead.
+    """
+    provision(generated)
+    _, data = doctor_json(generated)
+    epoch = [c for c in data["checks"] if c["check"] == "signing.epoch"]
+    assert epoch and epoch[0]["status"] == "DECIDE", data["checks"]
+    assert "verify_signatures" in epoch[0]["detail"], (
+        "the decision does not name the tool that will refuse until it is made")
+
+
+def test_doctor_does_not_restate_a_rule_manifest_owns(generated):
+    """A rule stated twice is a rule that will disagree with itself (#38).
+
+    doctor touches every rule in the repository and owns none of them. This
+    asserts agreement by behaviour rather than by reading the source: for each
+    roster shape, doctor blocks on formation exactly when manifest.formation_ok
+    refuses it.
+    """
+    m = generated / "syndicate.yaml"
+    provision(generated)
+    original = m.read_text(encoding="utf-8")
+
+    for formation in ("solo", "multi"):
+        m.write_text(original.replace("formation: multi", "formation: " + formation),
+                     encoding="utf-8")
+        cfg = yaml.safe_load(m.read_text(encoding="utf-8"))
+        want_ok, _ = manifest_formation_ok(cfg)
+        _, data = doctor_json(generated)
+        got = [c for c in data["checks"] if c["check"] == "formation"][0]
+        assert (got["status"] == "ok") == want_ok, (
+            "formation=%s: manifest says ok=%s, doctor says %s"
+            % (formation, want_ok, got["status"]))
+
+
+def test_doctor_blocks_on_a_gate_the_roster_cannot_satisfy(generated):
+    """Operator rule #2. The deadlock is discovered at merge, after the work.
+
+    Two members, because at one member the cap floors at 1 rather than 0 -
+    Agreement 10.1 needs an approving review to exist, so a solo syndicate's
+    tension is resolved by declaring formation, not by lowering the gate. That
+    floor is finding #55: it once blessed the single roster that always
+    deadlocks. The boundary this asserts only exists from two members up.
+    """
+    two_members(generated)
+    m = generated / "syndicate.yaml"
+    n = len(yaml.safe_load(m.read_text(encoding="utf-8"))["members"])
+    original = m.read_text(encoding="utf-8")
+
+    # A gate equal to the roster size is the deadlock boundary: it needs n
+    # approvals from n members, and GitHub will not let the author be one.
+    m.write_text(original.replace('"ledger/**": 1', '"ledger/**": %d' % n), encoding="utf-8")
+    code, data = doctor_json(generated)
+    gates = [c for c in data["checks"] if c["check"] == "gates"][0]
+    assert code == 1 and gates["status"] == "BLOCK", gates
+    assert "ledger/**" in gates["detail"] or "ledger/**" in gates["fix"], gates
+
+    # and the gate one below it must not block, or the cap is wrong the other way
+    m.write_text(original.replace('"ledger/**": 1', '"ledger/**": %d' % max(n - 1, 1)),
+                 encoding="utf-8")
+    _, data = doctor_json(generated)
+    gates = [c for c in data["checks"] if c["check"] == "gates"][0]
+    assert gates["status"] == "ok", "a satisfiable gate was reported as a deadlock: %s" % gates
+
+
+def test_doctor_warns_before_the_strip_eats_an_audit(generated):
+    """The landmine: docs/ is inherited, an audit of this syndicate is not.
+
+    bootstrap.sh offers to delete docs/. If this syndicate's own audit is still
+    sitting in it, answering yes destroys the record - and it is the record
+    organ the strip list was explicitly amended to protect. The strip list
+    strips inheritance, not identity.
+    """
+    provision(generated)
+    (generated / "docs").mkdir(exist_ok=True)
+    (generated / "docs" / "AUDIT-001-external.md").write_text("found\n", encoding="utf-8")
+    code, data = doctor_json(generated)
+    nar = [c for c in data["checks"] if c["check"] == "narrative"][0]
+    assert code == 1 and nar["status"] == "BLOCK", nar
+    assert "AUDIT-001-external.md" in nar["detail"]
+    assert nar["fix"].strip().startswith("git mv "), (
+        "the fix must be a git mv - a copy leaves the audit's history behind, "
+        "and the history is half of what makes it citable: " + nar["fix"])
+    assert "audits/" in nar["fix"], nar["fix"]
+
+
+# ───────────────────────────── the agent brief ──────────────────────────────
+
+def test_the_agent_brief_tells_an_agent_to_compute_rather_than_narrate(generated):
+    """CLAUDE.md is inherited by every fork, and read by an agent that will
+    otherwise form its own impression of the manifest and state it confidently.
+    Operator rule #8 generalises: to a human reading its output, an agent is a
+    check, and a check must never lie."""
+    brief = (generated / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "doctor.py --json" in brief, (
+        "the brief does not point the agent at the tool that computes state")
+    for organ in ("ledger/", "agreements/EXECUTION-LOG.md", "audits/"):
+        assert organ in brief, "the brief omits the record organ " + organ
+
+
+def test_the_agent_briefs_exit_codes_match_the_tools(generated):
+    """The brief makes a specific, checkable claim about every tool. A stale
+    row there is the exact failure the brief spends a section warning about, so
+    it is checked rather than trusted.
+
+    A tool's own docstring wins where it documents its codes. Where it does not,
+    the brief must claim only 0/1 - and the tool must contain no 2 or 3 exit,
+    so that adding one fails here rather than silently outdating the table.
+    """
+    brief = (generated / "CLAUDE.md").read_text(encoding="utf-8")
+    rows = re.findall(r"^\|\s*`(tools/\w+\.py)`\s*\|[^|]*\|([^|]*)\|", brief, re.M)
+    assert len(rows) >= 6, "the tool table did not parse: %r" % rows
+
+    for path, codes in rows:
+        tool = generated / path
+        assert tool.exists(), "the brief names a tool that does not exist: " + path
+        claimed = set(re.findall(r"\b([0-3])\b", codes))
+        src = tool.read_text(encoding="utf-8")
+
+        documented = re.search(r"Exit codes[^\n]*\n((?:\s{4}\d.*\n)+)", src)
+        if documented:
+            actual = set(re.findall(r"^\s+([0-3])\s", documented.group(1), re.M))
+            assert claimed == actual, (
+                "%s documents exit codes %s; the brief claims %s"
+                % (path, sorted(actual), sorted(claimed)))
+            continue
+
+        for code in ("2", "3"):
+            has = re.search(r"(?:return|sys\.exit\()\s*" + code + r"\b", src)
+            assert (code in claimed) == bool(has), (
+                "%s %s an exit %s; the brief %s"
+                % (path, "has" if has else "has no", code,
+                   "claims it" if code in claimed else "does not claim it"))

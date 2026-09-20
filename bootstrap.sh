@@ -60,3 +60,15 @@ fi
 echo "== 5. BYOK reminders =="
 echo "  - Obsidian-Git plugin: author email must match git email"
 echo "  - .env is gitignored. Keys never enter the repo."
+
+echo
+echo "== 6. Where this syndicate stands =="
+# bootstrap runs once; doctor answers the question bootstrap leaves behind -
+# what is still owed, and what the next command is. Re-runnable, read-only, and
+# the thing to run first whenever anything is unclear. Its exit code is not
+# this script's: a fresh syndicate legitimately owes decisions, and bootstrap
+# succeeding at what bootstrap does is a separate fact from the repo being
+# fully configured.
+python3 tools/doctor.py || true
+echo
+echo "Re-run it any time:  python3 tools/doctor.py"
