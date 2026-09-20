@@ -1257,21 +1257,36 @@ def test_the_mold_has_nobody_to_verify(generated):
     assert code == 0 and "not a syndicate yet" in out, out
 
 
-def test_the_pq_verify_pin_is_not_widened(generated):
-    """pq-verify's own metadata says Python >=3.8 and its package does not parse
-    below 3.12 (f-string escapes, PEP 701). pip installs it on 3.11 and the
-    import raises. This workflow's pin is the only thing between the integration
-    and that failure, so "widen for compatibility" is guarded against rather
-    than left to a comment nobody reads.
+def test_every_workflow_runs_the_same_python(generated):
+    """Row 61. This guard replaces one whose reason expired underneath it.
+
+    It used to assert `>= 3.12` on the pq-verify workflow alone, because
+    pq-verify 2.6.7 declared requires-python >=3.8 while its package used
+    f-string escapes that only parse from 3.12 (PEP 701) - pip installed it and
+    the import raised. That was measured, and it was true. It is no longer:
+    2.8.0 declares >=3.9 and its package and tests both parse against the 3.9
+    grammar, re-measured 2026-09-20.
+
+    Nothing in this repository re-checks a guard's premise, so the old one
+    would have gone on enforcing a rule for a reason that had stopped existing
+    - green, and quietly wrong about why. The pin itself was never the problem
+    and has not moved; what changed is that it is now justified by something
+    still true.
+
+    One Python across every workflow, disabled ones included. A workflow on its
+    own version is a difference nobody chose, found the day it behaves unlike
+    the other six.
     """
-    wf = generated / ".github" / "workflows" / "pq-verify.yml.disabled"
-    assert wf.exists(), "the pq-verify workflow is gone"
-    m = re.search(r'python-version:\s*"?(\d+)\.(\d+)"?', wf.read_text(encoding="utf-8"))
-    assert m, "no python-version pinned in the pq-verify workflow"
-    major, minor = int(m.group(1)), int(m.group(2))
-    assert (major, minor) >= (3, 12), (
-        "pq-verify needs Python >= 3.12 to import at all; this workflow asks for "
-        "%d.%d, which installs and then fails at import" % (major, minor))
+    versions = {}
+    for wf in sorted((generated / ".github" / "workflows").iterdir()):
+        for i, line in enumerate(wf.read_text(encoding="utf-8").splitlines(), 1):
+            m = re.search(r'python-version:\s*"?(\d+\.\d+)"?', line)
+            if m:
+                versions.setdefault(m.group(1), []).append("%s:%d" % (wf.name, i))
+
+    assert versions, "no python-version found in any workflow - the parse is wrong"
+    assert len(versions) == 1, "workflows disagree about Python:\n" + "\n".join(
+        "  %s  <- %s" % (v, ", ".join(w)) for v, w in sorted(versions.items()))
 
 
 # ──────────────────── the helper an adopter meets first ─────────────────────
