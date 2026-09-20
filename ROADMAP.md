@@ -10,6 +10,19 @@
 
 ## Mid term
 
+- **split the suite along the line row 60 found.** tests/ is excluded from the
+  inherited set because 37 of its 75 tests cannot pass in a provisioned
+  instance - eight assert mold behaviour, and the rest sit on fixtures that
+  assume the tree still carries the placeholder member row. That exclusion
+  stops the checklist giving bad advice, and it throws away something real:
+  the guards that check the machinery's invariants are worth MORE in an
+  instance than in the mold. The shakedown ran eight actions on mutable tags
+  with a write-scoped PAT for weeks, and `test_every_action_is_pinned_to_a_commit`
+  would have caught it on day one. The split is tests of generation (template
+  only, fixtures that provision a mold) versus tests of invariants (portable,
+  fixtures that take the repo as it is). The second set is what an instance's
+  own smoke workflow should run.
+
 - template drift check (shipped): syndicate.yaml records the upstream commit
   this repo's lineage starts at; tools/drift_check.py diffs it against the
   template's current head and the diff IS the remediation checklist. Git-native,

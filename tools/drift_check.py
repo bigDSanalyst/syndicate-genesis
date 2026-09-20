@@ -79,6 +79,19 @@ NOT_INHERITED = STRIP_AT_ACTIVATION + RECORD_ORGANS + (
     "vault/00-inbox/", "vault/10-literature/", "vault/20-notes/",
     "vault/30-experiments/", "vault/40-drafts/", "vault/50-decisions/",
     "vault/maps/",
+    # tests/ and the workflow that runs it: measured at 37 of 75 failing inside
+    # a provisioned instance (row 60). Eight assert mold behaviour and can never
+    # pass there; the rest fail because every fixture in the suite starts by
+    # pretending the tree under test still carries the placeholder member row,
+    # so provision() is a no-op and the rosters it builds are not the ones the
+    # assertions name. Listing it as inherited told every adopter to import a
+    # suite that is permanently half red, which teaches people to ignore CI -
+    # operator rule #8 inverted. Not the final answer: the suite conflates tests
+    # OF GENERATION, which are template-only by definition, with tests of the
+    # machinery's invariants, which are worth more in an instance than here.
+    # Splitting those is the fix; excluding it is what stops the checklist
+    # giving bad advice today. See ROADMAP.
+    "tests/", ".github/workflows/smoke.yml",
 )
 
 # The drawer's label is machinery; what goes in the drawer is identity. The
