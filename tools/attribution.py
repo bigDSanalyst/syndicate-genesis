@@ -22,7 +22,7 @@ import subprocess
 import sys
 import urllib.request
 from datetime import date, datetime, timezone, timedelta
-from decimal import Decimal, ROUND_HALF_EVEN, getcontext
+from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_EVEN, getcontext
 from pathlib import Path
 
 import yaml
@@ -87,6 +87,48 @@ def api_paged(url):
             if 'rel="next"' in part and "<" in part:
                 url = part[part.index("<") + 1:part.index(">")]
     return out
+
+
+SHARE_PLACES = 4
+# (mutation marker)        # digits published in attribution.csv
+
+
+def apportion(shares, places):
+    """Round shares to `places` digits so they still sum to exactly one.
+
+    The internal arithmetic is exact Decimal; the PUBLISHED split was not.
+    Rounding each share independently is the classic apportionment error:
+    three members at exactly one third publish 0.3333 each and allocate
+    0.9999 of the revenue, and six publish 0.1667 each and allocate 1.0002 -
+    a ledger promising 100.02% of the money. Measured, not reasoned: at 2
+    members it happens to work, at 3, 6, 7, 9 and 11 it does not.
+
+    Largest-remainder (Hamilton): floor every share to the grid, then hand
+    the leftover units one each to the largest fractional remainders. The
+    result sums to exactly one by construction, no member is off by more
+    than one unit in the last place, and it is deterministic - ties break on
+    the member key, which is stated rather than left to dict ordering so two
+    people recomputing the same window get the same file.
+
+    An empty window sums to zero, and zero is the honest answer there; it
+    must not be apportioned up to one.
+    """
+    if not shares:
+        return {}
+    total = sum(shares.values(), ZERO)
+    grid = Decimal(1).scaleb(-places)                 # e.g. 0.0001
+    if total == ZERO:
+        return {k: ZERO.quantize(grid) for k in shares}
+
+    units = {k: (v / grid).to_integral_value(rounding=ROUND_FLOOR)
+             for k, v in shares.items()}
+    target = (total / grid).to_integral_value(rounding=ROUND_HALF_EVEN)
+    short = int(target - sum(units.values(), ZERO))
+    # largest remainder first; the member key breaks ties deterministically
+    order = sorted(shares, key=lambda k: (-(shares[k] / grid - units[k]), k))
+    for k in order[:max(short, 0)]:
+        units[k] += 1
+    return {k: (v * grid).quantize(grid) for k, v in units.items()}
 
 
 def main():
@@ -211,6 +253,7 @@ def main():
     # yields zeros, which is the honest answer - not an equal split of nothing.
     tot = sum(x.values(), ZERO) or ONE
     shares = {k: v / tot for k, v in x.items()}
+    published = apportion(shares, SHARE_PLACES)
     now_s = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     deadline = (datetime.now(timezone.utc) + timedelta(days=window_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
     out_dir = repo / "ledger" / "windows" / label
@@ -218,7 +261,7 @@ def main():
     rows = ["github,email,churn_w,files,reviews,merges,A_log,B_log,R_acts,x_raw,share"]
     for m in members:
         g = m["github"]
-        rows.append(",".join(str(v) for v in [g, m["email"], q(churn[m["email"]], 1), len(files[m["email"]]), reviews[g], merges[g], q(A[m["email"]], 4), q(B[m["email"]], 4), int(R[g]), q(x[g], 5), q(shares[g], 4)]))
+        rows.append(",".join(str(v) for v in [g, m["email"], q(churn[m["email"]], 1), len(files[m["email"]]), reviews[g], merges[g], q(A[m["email"]], 4), q(B[m["email"]], 4), int(R[g]), q(x[g], 5), published[g]]))
     (out_dir / "attribution.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
     evidence = {"window": {"label": label, "start": start, "end": end}, "members": members, "weights_used": {"churn": str(wc / tw), "breadth": str(wb / tw), "review": str(wr / tw)}, "raw": {m["github"]: {"churn_w": str(churn[m["email"]]), "files": sorted(files[m["email"]]), "reviews": reviews[m["github"]], "merges": merges[m["github"]]} for m in members}, "survivor_weight": str(SURVIVOR_WEIGHT), "clock": "committer dates; push-time gating is the admissible clock per 4.2 (v1 limitation)", "generated_at": now_s, "objection_deadline": deadline, "window_head": sh("git", "rev-parse", "HEAD", cwd=repo)}
     (out_dir / "evidence.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")

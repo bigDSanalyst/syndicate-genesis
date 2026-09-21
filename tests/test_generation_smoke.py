@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from decimal import Decimal
 
 TEMPLATE = Path(__file__).resolve().parent.parent
 TOOLS = TEMPLATE / "tools"
@@ -263,6 +264,21 @@ def test_mold_ships_no_anchor_chain(generated):
     Anchoring is a syndicate act. The mold does not perform it (operator
     rule #10).
     """
+    # ledger/ ENTIRE, not just anchors/. The original guard named the
+    # directory that had bitten us and stopped there, so ledger/windows/
+    # went unwatched - and the template shipped two attribution windows for
+    # `github-handle` from c599ca5 onward, which every generated syndicate
+    # inherited as if it were its own record (row 71). Same rule, adjacent
+    # directory, no guard.
+    windows = generated / "ledger" / "windows"
+    if windows.exists():
+        stray = [p.relative_to(generated).as_posix()
+                 for p in sorted(windows.rglob("*")) if p.is_file()]
+        assert not stray, (
+            "the mold ships attribution windows, and every syndicate "
+            "generated from it inherits them as its own ratified record: "
+            + ", ".join(stray))
+
     anchors = generated / "ledger" / "anchors"
     if not anchors.exists():
         return
@@ -1683,3 +1699,158 @@ def _run_attr(repo):
     r = subprocess.run([sys.executable, str(TOOLS / "attribution.py"),
                         "--repo", str(repo)], text=True, capture_output=True)
     return r.returncode, r.stdout + r.stderr
+
+
+@pytest.mark.parametrize("n", [1, 2, 3, 5, 6, 7, 9, 11, 13, 17, 20, 23])
+def test_published_shares_sum_to_exactly_one(n):
+    """Row 70. An algebraic gauge over the money path's OUTPUT.
+
+    The Decimal migration made the arithmetic exact. It stopped at the CSV
+    boundary: each share was rounded to four places independently, so three
+    members at one third published 0.9999 of the revenue and six published
+    1.0002 - a ledger promising 100.02% of the money, which is the worse
+    direction. Nothing checked it, because nothing checked the output at
+    all; every guard pointed at the inputs.
+
+    This is the cheapest possible identity over the result - it must sum to
+    one - and it is the kind that catches what input guards cannot: an error
+    introduced BETWEEN a correct computation and the artifact that gets
+    ratified. Parametrised over roster sizes because the bug is arithmetical,
+    not conceptual: at 2 members the naive rounding happens to be right, so a
+    single-case test would have passed.
+    """
+    sys.path.insert(0, str(TOOLS))
+    import attribution as attr
+
+    even = {"m%02d" % i: attr.ONE / Decimal(n) for i in range(n)}
+    got = sum(attr.apportion(even, attr.SHARE_PLACES).values(), attr.ZERO)
+    assert got == attr.ONE, (
+        "%d members, even split: published shares sum to %s, not 1. A split "
+        "that does not sum to one either loses revenue or promises revenue "
+        "that does not exist." % (n, got))
+
+    # and a lopsided window, where the remainders are not all equal
+    weights = [Decimal(i * i + 1) for i in range(n)]
+    tot = sum(weights, attr.ZERO)
+    lop = {"m%02d" % i: weights[i] / tot for i in range(n)}
+    got = sum(attr.apportion(lop, attr.SHARE_PLACES).values(), attr.ZERO)
+    assert got == attr.ONE, (
+        "%d members, lopsided window: published shares sum to %s, not 1" % (n, got))
+
+
+def test_an_empty_window_publishes_zero_not_one():
+    """The identity is "sums to the total", not "sums to one".
+
+    A window in which nobody did anything yields zero shares, and zero is
+    the honest answer - apportioning it up to one would invent a split out
+    of an empty window, which is worse than the rounding bug it fixes.
+    """
+    sys.path.insert(0, str(TOOLS))
+    import attribution as attr
+
+    assert sum(attr.apportion({}, 4).values(), attr.ZERO) == attr.ZERO
+    zeros = {"a": attr.ZERO, "b": attr.ZERO, "c": attr.ZERO}
+    assert sum(attr.apportion(zeros, 4).values(), attr.ZERO) == attr.ZERO
+
+
+def test_apportionment_is_deterministic_under_ties():
+    """Two members recomputing the same window must get the same file.
+
+    With equal remainders the leftover unit has to go somewhere, and if that
+    somewhere depends on dict ordering the CSV is not reproducible - which
+    breaks the one property the whole record rests on.
+    """
+    sys.path.insert(0, str(TOOLS))
+    import attribution as attr
+
+    third = attr.ONE / Decimal(3)
+    a = attr.apportion({"alpha": third, "beta": third, "gamma": third}, 4)
+    b = attr.apportion({"gamma": third, "beta": third, "alpha": third}, 4)
+    assert a == b, "apportionment depends on insertion order: %s vs %s" % (a, b)
+
+
+def test_the_published_csv_sums_to_one(generated, tmp_path):
+    """The guard that binds. Row 70's other half.
+
+    Testing apportion() proves the helper is right; it does not prove the
+    artifact is. Two mutations of main() - reverting the published column to
+    independent rounding, and forcing an empty window up to one - both
+    survived a suite that tested the function directly, because nothing ran
+    the tool and read what it wrote.
+
+    So this runs attribution end to end against a three-member roster (the
+    smallest even split the naive rounding gets wrong) with the GitHub call
+    stubbed to a valid empty result, then reads the share column out of
+    ledger/windows/*/attribution.csv - the file that actually gets ratified.
+    """
+    repo = generated
+    m = repo / "syndicate.yaml"
+    t = m.read_text(encoding="utf-8").replace('"github-handle"', '"alpha"').replace(
+        '    email: "ID+handle@users.noreply.github.com"',
+        '    email: "1+alpha@users.noreply.github.com"')
+    rows = ""
+    for i, who in enumerate(("beta", "gamma"), start=2):
+        rows += ('\n  - name: "%s"\n    github: "%s"\n    orcid: "0000-0000-0000-0000"\n'
+                 '    email: "%d+%s@users.noreply.github.com"\n    role: "theory"\n'
+                 '    trust_tier: verified\n    joined: "2026-09-18"\n'
+                 % (who.title(), who, i, who))
+    i = re.search(r"(?m)^members:.*$", t).end()
+    m.write_text(t[:i] + rows + t[i:], encoding="utf-8")
+    git("remote", "set-url", "origin", "https://github.com/example/syn.git", cwd=repo)
+
+    # The manifest edit is committed by a NON-member first. Sweeping it into
+    # the first member's commit gave that member extra churn, so the shares
+    # were not equal, the remainders differed, and naive rounding summed to
+    # 1.0000 by luck - this test passed against the very bug it exists to
+    # catch until the setup commit was moved out.
+    git("add", "-A", cwd=repo)
+    git("-c", "user.name=Setup", "-c", "user.email=setup@example.invalid",
+        "commit", "-q", "-m", "roster", cwd=repo)
+
+    # equal work, so the exact shares are each one third
+    for who, num in (("alpha", 1), ("beta", 2), ("gamma", 3)):
+        f = repo / ("%s.md" % who)
+        f.write_text("x\n" * 10, encoding="utf-8")
+        git("add", "-A", cwd=repo)
+        git("-c", "user.name=" + who,
+            "-c", "user.email=%d+%s@users.noreply.github.com" % (num, who),
+            "commit", "-q", "-m", "work by " + who, cwd=repo)
+
+    runner = tmp_path / "run_attr.py"
+    # A real response shape, not a bare BytesIO: api_paged reads .headers for
+    # the Link header, and a stub missing it fails the run for a reason that
+    # has nothing to do with what is under test.
+    runner.write_text(
+        "import io, json, sys, urllib.request\n"
+        "class _Resp(io.BytesIO):\n"
+        "    headers = {}\n"
+        "    def __enter__(self): return self\n"
+        "    def __exit__(self, *a): return False\n"
+        "urllib.request.urlopen = lambda *a, **k: _Resp(b'[]')\n"
+        "sys.argv = ['attribution.py', '--repo', %r]\n"
+        "src = open(%r, encoding='utf-8').read()\n"
+        "try:\n"
+        "    exec(compile(src, %r, 'exec'),\n"
+        "         {'__name__': '__main__', '__file__': %r})\n"
+        "except SystemExit as e:\n"
+        "    sys.exit(e.code if isinstance(e.code, int) else 0)\n"
+        % (str(repo), str(TOOLS / "attribution.py"),
+           str(TOOLS / "attribution.py"), str(TOOLS / "attribution.py")),
+        encoding="utf-8")
+    r = subprocess.run([sys.executable, str(runner)], text=True, capture_output=True)
+    assert r.returncode == 0, "attribution failed:\n" + r.stdout + r.stderr
+
+    csvs = sorted((repo / "ledger" / "windows").rglob("attribution.csv"))
+    assert len(csvs) == 1, (
+        "expected exactly one window after one run; found %d. A stray window "
+        "shipped in the template would otherwise be read instead of the one "
+        "this test just produced (row 71): %s"
+        % (len(csvs), [c.relative_to(repo).as_posix() for c in csvs]))
+    body = csvs[0].read_text(encoding="utf-8").strip().splitlines()
+    head = body[0].split(",")
+    col = head.index("share")
+    total = sum((Decimal(line.split(",")[col]) for line in body[1:]), Decimal(0))
+    assert total == Decimal("1.0000"), (
+        "the published attribution.csv sums to %s, not 1 - the file that gets "
+        "ratified either loses revenue or promises revenue that does not "
+        "exist:\n%s" % (total, "\n".join(body)))
