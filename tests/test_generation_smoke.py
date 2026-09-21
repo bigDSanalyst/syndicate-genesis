@@ -1888,3 +1888,61 @@ def test_the_findings_ledger_numbering_is_sound():
     assert nums == sorted(nums), (
         "findings rows are out of order; first descent at %s"
         % next("%d->%d" % (a, b) for a, b in zip(nums, nums[1:]) if b < a))
+
+
+@pytest.mark.parametrize("state,expect_code", [
+    ("absent", 2),          # nothing to run: transient, try later
+    ("dead_shebang", 1),    # present, will not exec: a human must reinstall
+    ("not_executable", 2),  # which() cannot see it either, so same as absent
+])
+def test_a_broken_ots_install_is_not_a_network_problem(generated, tmp_path,
+                                                       state, expect_code):
+    """Row 73. shutil.which() answers a different question than exec does.
+
+    which() says "is there a file here". exec says "can it run". A pipx or uv
+    tool install whose interpreter moved leaves a shim which() finds and exec
+    refuses with FileNotFoundError - naming the shim, not ots. run_ots caught
+    only TimeoutExpired, so that reached the operator as a raw traceback,
+    where every other tool here names its reason.
+
+    And the exit code was wrong in the way that wastes the most time: a
+    broken install reported as transient tells someone to wait for the
+    network to come back, when the network was never involved. Three states,
+    three answers, asserted separately - a single-state test would have
+    passed against a version that collapsed them.
+    """
+    provision(generated)
+    log = generated / "ledger" / "anchors"
+    log.mkdir(parents=True, exist_ok=True)
+    (log / "0001-x.json").write_text('{"a":1}', encoding="utf-8")
+    (log / "0001-x.json.ots").write_text("stub", encoding="utf-8")
+    (log / "log.jsonl").write_text(json.dumps({
+        "seq": 1, "anchor_id": "0001-x", "manifest": "ledger/anchors/0001-x.json",
+        "manifest_sha256": "0" * 64, "status": "pending",
+        "created": "2099-01-01T00:00:00Z"}) + "\n", encoding="utf-8")
+
+    # A PATH with git but no real ots, so the shim is the only candidate.
+    d = tmp_path / ("otsbin_" + state)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "git").symlink_to(shutil.which("git"))
+    if state == "dead_shebang":
+        p = d / "ots"
+        p.write_text("#!/nonexistent/interpreter\n", encoding="utf-8")
+        p.chmod(0o755)
+    elif state == "not_executable":
+        (d / "ots").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")   # no +x
+
+    r = subprocess.run([sys.executable, str(TOOLS / "anchor.py"), "upgrade",
+                        "--repo", str(generated)], text=True, capture_output=True,
+                       env={"PATH": str(d)}, timeout=180)
+    out = r.stdout + r.stderr
+    assert "Traceback" not in out, (
+        "ots %s produced a stack trace instead of a named refusal:\n%s"
+        % (state, out[-1200:]))
+    assert r.returncode == expect_code, (
+        "ots %s exited %d, expected %d. 1 means a human must act; 2 means try "
+        "again later - telling someone to wait for a network that was never "
+        "the problem is the failure this separates:\n%s"
+        % (state, r.returncode, expect_code, out[-1200:]))
+    if state == "dead_shebang":
+        assert "not a network problem" in out, out

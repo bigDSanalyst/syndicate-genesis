@@ -152,11 +152,42 @@ def ots_cli():
     return path
 
 
+BROKEN_INSTALL = "ots-broken-install"
+
+
 def run_ots(*args):
+    """Run ots, and distinguish the three ways it can let you down.
+
+    shutil.which() answers "is there a file here", and exec answers "can it
+    run". They disagree more often than they look like they would: a pipx or
+    uv tool install whose interpreter was upgraded out from under it leaves a
+    shim which() finds happily and exec refuses with FileNotFoundError - for
+    the shim itself, not for ots. This function used to catch only
+    TimeoutExpired, so that case reached the operator as a raw traceback
+    (row 73), where every other tool in this repository names its reason.
+
+    It also matters WHICH failure it is: a broken install is a human's job
+    (reinstall), not a transient the caller should retry when the network is
+    back. Returning them as the same thing sends someone to wait for weather
+    that was never the problem.
+
+    (The distinction is lifted from Panniantong/Agent-Reach's probe.py, which
+    names missing / broken / timeout as three modes that shutil.which()
+    flattens into one.)
+    """
     try:
         return subprocess.run(["ots", *args], capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
         return subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="ots timed out")
+    except OSError as e:
+        # FileNotFoundError: dead shebang or vanished between which() and exec.
+        # PermissionError: present, found, and not executable.
+        return subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="",
+            stderr=BROKEN_INSTALL + ": ots is on PATH but will not execute (%s). "
+                   "Reinstall it - `pip install --force-reinstall "
+                   "opentimestamps-client` - this is not a network problem and "
+                   "retrying will not help." % e.__class__.__name__)
 
 
 # A calendar we could not talk to is not a calendar that told us "not yet".
@@ -225,6 +256,7 @@ def ensure_stamps(repo, log_path):
     entries = load_log(log_path)
     changed = False
     unchecked = 0
+    broken = []
     for e in entries:
         manifest = repo / e["manifest"]
         ots = Path(str(manifest) + ".ots")
@@ -257,6 +289,9 @@ def ensure_stamps(repo, log_path):
                     e["height"] = info["height"]
                 changed = True
                 print("confirmed #" + format(e["seq"], "04d") + " in Bitcoin (block " + str(info["height"] or "?") + ")")
+            elif BROKEN_INSTALL in (r.stderr or ""):
+                # Not transient. Nobody should be told to try again later.
+                broken.append(format(e["seq"], "04d"))
             elif not answered:
                 unchecked += 1
                 print("unknown #" + format(e["seq"], "04d") + " - could not reach the "
@@ -267,6 +302,11 @@ def ensure_stamps(repo, log_path):
                 print("pending #" + format(e["seq"], "04d") + " - not yet in a Bitcoin block")
     if changed:
         rewrite_log(log_path, entries)
+    if broken:
+        print("ots is installed but will not run, so anchors " + ", ".join(broken)
+              + " were not checked. Reinstall opentimestamps-client; this is "
+              "not a network problem.")
+        return -1      # needs a human, not a retry
     return unchecked
 
 
@@ -376,6 +416,8 @@ def main():
     if stale:
         print("error: anchors " + str(stale) + " unsubmitted for more than " + str(STALE_DAYS) + " days")
         return 1
+    if unchecked < 0:
+        return 1       # broken toolchain: a human has to fix the install
     if unchecked:
         # Transient, not a failure to route to a human: the calendars were not
         # reachable, so this run establishes nothing about those anchors. Exit
