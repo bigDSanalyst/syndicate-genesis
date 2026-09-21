@@ -36,6 +36,12 @@ HTTP_TOOLS = {
                       "--out", "vault/20-notes"],
     "drift_check":   ["drift_check.py", "check", "--repo", "."],
     "attribution":   ["attribution.py", "--repo", "."],
+    # join resolves a handle to its noreply address through the GitHub API
+    # before it writes anything. A fault here must stop it BEFORE the
+    # manifest is touched: a member row invented from a failed lookup is a
+    # wrong identity written into the file identity is read from.
+    "join":          ["join.py", "--handle", "newmember", "--name", "New Member",
+                      "--repo", "."],
 }
 
 
@@ -57,6 +63,18 @@ def repo(tmp_path_factory):
                 ["config", "user.name", "Real Member"],
                 ["config", "user.email", "1+realmember@users.noreply.github.com"],
                 ["add", "-A"], ["commit", "-q", "-m", "genesis"]):
+        subprocess.run(["git"] + cmd, cwd=d, check=True, capture_output=True)
+    # An origin with a real origin/main, because join checks out against it
+    # before it ever resolves a handle. Without one, join dies at the
+    # checkout and every fault test for it passes without reaching the code
+    # under test - which is exactly how the first version of
+    # test_join_writes_no_member_row survived a mutation that made join
+    # fabricate an address out of a failed lookup.
+    origin = d.parent / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)],
+                   check=True, capture_output=True)
+    for cmd in (["remote", "add", "origin", str(origin)],
+                ["push", "-q", "-u", "origin", "main"]):
         subprocess.run(["git"] + cmd, cwd=d, check=True, capture_output=True)
     return d
 
@@ -171,6 +189,31 @@ def test_anchor_upgrade_never_claims_bitcoin_it_did_not_check(repo, fault, tmp_p
     assert "not yet in a Bitcoin block" not in out, (
         "under %s it still made a claim about Bitcoin - nobody answered:\n%s"
         % (fault, out[-1500:]))
+
+
+@pytest.mark.parametrize("fault", sorted(faultkit.HTTP_FAULTS))
+def test_join_writes_no_member_row_when_the_lookup_failed(repo, fault, tmp_path):
+    """The exit code is half of it; the manifest is the other half.
+
+    join's whole job is turning a handle into the noreply address that IS
+    that member's identity (operator rule #9). If the lookup fails and it
+    writes a row anyway, the wrong identity is now in the file every other
+    tool reads identity from - and attribution will score commits against
+    it, or fail to, silently. So this asserts the side effect too: refusing
+    loudly while leaving a half-written row behind would pass a
+    code-only check.
+    """
+    before = (repo / "syndicate.yaml").read_text(encoding="utf-8")
+    code, out = run_http_fault(repo, "join", fault, tmp_path)
+    after = (repo / "syndicate.yaml").read_text(encoding="utf-8")
+    assert code != 0, (
+        "join under %s exited 0 having never resolved the handle:\n%s"
+        % (fault, out[-1200:]))
+    assert after == before, (
+        "join under %s modified syndicate.yaml despite a failed identity "
+        "lookup - that is a fabricated member row in the file identity is "
+        "read from:\n%s" % (fault, out[-1200:]))
+    assert "newmember@users.noreply.github.com" not in after
 
 
 def _no_unconfirmed(repo) -> bool:

@@ -1538,6 +1538,90 @@ def test_upgrade_without_the_ots_cli_does_not_report_success(generated, tmp_path
         % (r.returncode, r.stdout + r.stderr))
 
 
+@pytest.mark.parametrize("broken", ["missing", "exit_1", "garbage_output"])
+def test_verify_signatures_never_certifies_what_it_could_not_check(generated, tmp_path, broken):
+    """Row 68. The fault matrix could not host this one.
+
+    verify_signatures shells out to ssh-keygen for key fingerprints. To ask
+    "does a broken ssh-keygen produce a false PASS?" the repository must
+    first be one where a PASS is the correct answer - real keys, real signed
+    commits, a real epoch. That is signing_repo(), which lives here, and
+    trying to fault-test this tool without it produced a guard that passed
+    against every mutation because the run failed for unrelated reasons.
+
+    A false pass here is row 62 in the tool whose entire purpose is that an
+    email is a claim and a key is possession.
+    """
+    repo, keys = signing_repo(generated)
+    sign_commit(repo, "alpha", "1+alpha@users.noreply.github.com", "a.md", signed=True)
+    code, out = run_verify(repo)
+    assert code == 0, "the fixture itself does not verify; the test is void:\n" + out
+
+    # A PATH holding git and nothing else, so "missing" really means missing.
+    # The first version of this test prepended a shim dir to /usr/bin:/bin -
+    # where the real ssh-keygen lives - so the "missing" case silently used
+    # the real binary and the assertion failed against a tool that was fine.
+    # A fault test that does not install the fault is testing nothing.
+    bindir = tmp_path / ("bin_" + broken)
+    bindir.mkdir(parents=True, exist_ok=True)
+    (bindir / "git").symlink_to(shutil.which("git"))
+    if broken != "missing":
+        body = {"exit_1": "exit 1",
+                "garbage_output": "echo 'not a fingerprint'; exit 0"}[broken]
+        p = bindir / "ssh-keygen"
+        p.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8")
+        p.chmod(0o755)
+    env = dict(os.environ, PATH=str(bindir))
+    r = subprocess.run([sys.executable, str(TOOLS / "verify_signatures.py"),
+                        "--repo", str(repo)], text=True, capture_output=True, env=env)
+    broke = r.stdout + r.stderr
+    assert r.returncode != 0, (
+        "with ssh-keygen %s, verify_signatures still reported success - it "
+        "certified cryptography it never performed:\n%s" % (broken, broke[-1200:]))
+
+
+def test_every_world_dependent_guard_declares_its_premise():
+    """Row 61's process half. Not a detector - a completeness check.
+
+    A guard is a claim about the world, and the world moves. The pq-verify
+    pin was guarded at >= 3.12 for a reason that upstream later fixed; the
+    guard kept passing while its docstring asserted a disproven fact. Nothing
+    re-checks a premise, so nothing would ever have said so.
+
+    A premise like "this upstream package is broken on 3.11" cannot be
+    re-tested offline, and a test that fails on a calendar date is a time
+    bomb that goes red in CI with no code change - which teaches its reader
+    to ignore CI, the exact failure this repository keeps naming. So this
+    does not try to detect decay. It guarantees that when someone asks "is
+    this still true?", the answer is one command away rather than an
+    afternoon of archaeology: every world-dependent guard must name its
+    premise, the date it was measured, how to re-check it, and what would
+    make it expire.
+
+    It lives in the generation suite rather than the invariants because the
+    registry catalogues THIS repository's guards; an instance has its own.
+    """
+    sys.path.insert(0, str(TEMPLATE / "tests"))
+    import external_premises as ep
+
+    assert ep.PREMISES, "the premise registry is empty"
+    seen = set()
+    for row in ep.PREMISES:
+        for field in ep.REQUIRED:
+            assert row.get(field), "premise for %r is missing %r" % (
+                row.get("guard", "?"), field)
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", row["measured"]), (
+            "%s: `measured` is not a date: %r" % (row["guard"], row["measured"]))
+        assert row["guard"] not in seen, "duplicate premise for " + row["guard"]
+        seen.add(row["guard"])
+
+    # Every named guard must exist, or the registry describes a repository
+    # that is gone. A stale registry is worse than none: it reads as coverage.
+    tests = "\n".join(p.read_text(encoding="utf-8")
+                      for p in sorted((TEMPLATE / "tests").glob("test_*.py")))
+    for row in ep.PREMISES:
+        assert "def " + row["guard"] + "(" in tests, (
+            "the registry cites %s, which no longer exists" % row["guard"])
 def test_attribution_refuses_the_mold(generated):
     """Row 65. Operator rule #10, in the tool that decides money.
 
