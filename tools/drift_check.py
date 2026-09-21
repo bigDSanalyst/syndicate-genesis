@@ -96,7 +96,16 @@ NOT_INHERITED = STRIP_AT_ACTIVATION + RECORD_ORGANS + (
 
 # The drawer's label is machinery; what goes in the drawer is identity. The
 # convention doc for audits/ ships from the template and should keep tracking it.
-INHERITED_ANYWAY = ("audits/README.md",)
+#
+# tests/ is excluded above because the generation suite cannot run in an
+# instance (row 60). These two are the half that can, and an instance that
+# does not receive them is an instance running eight actions on mutable tags
+# with nobody to say so - which is not hypothetical, it is what the shakedown
+# did for weeks while the guard sat in the one file the checklist had to stop
+# recommending. The invariants file asserts properties of whatever repository
+# it is in and passes unmodified in both.
+INHERITED_ANYWAY = ("audits/README.md",
+                    "tests/test_invariants.py", "tests/requirements.txt")
 
 
 def inherited(path: str) -> bool:
