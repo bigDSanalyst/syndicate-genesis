@@ -27,6 +27,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from manifest import is_unprovisioned_template            # noqa: E402
+
 # These numbers decide revenue splits (Agreement section 5), so the arithmetic is
 # exact and reproducible rather than platform-dependent. Binary floats make
 # 0.1 + 0.2 != 0.3 and make the result depend on summation order; a member
@@ -95,6 +98,23 @@ def main():
     args = ap.parse_args()
     repo = args.repo.resolve()
     cfg = yaml.safe_load((repo / "syndicate.yaml").read_text())
+
+    # Operator rule #10: a mold is not a syndicate. anchor.py, drift_check.py,
+    # verify_signatures.py and doctor.py all refuse one; this tool did not,
+    # and it is the tool that decides money. Run in the template it produced a
+    # complete window for `github-handle`, carrying an objection deadline and
+    # the line "silence = ratification" - a ratifiable revenue split naming a
+    # member who does not exist. Nothing downstream distinguishes that file
+    # from a real one, and every repository generated from the template would
+    # inherit it if it were ever committed here.
+    if is_unprovisioned_template(cfg):
+        sys.exit(
+            "refusing to compute shares: syndicate.yaml still carries the\n"
+            "template's placeholder member row, so this repository is a mold,\n"
+            "not a syndicate (operator rule #10). A window computed here would\n"
+            "name a member who does not exist and carry a real objection\n"
+            "deadline. Replace the placeholder row with real members first.")
+
     members = cfg["members"]
     weights = cfg["attribution"]["weights"]
     window_days = cfg["governance"]["objection_window_days"]
@@ -145,7 +165,21 @@ def main():
     merges = {m["github"]: 0 for m in members}
     reviews = {m["github"]: 0 for m in members}
     remote = sh("git", "remote", "get-url", "origin", cwd=repo)
-    owner_repo = re.search(r"github\.com[:/](.+?)(\.git)?$", remote).group(1)
+    m = re.search(r"github\.com[:/](.+?)(\.git)?$", remote)
+    if m is None:
+        # Review and merge credit is 0.25 of the weight and comes from the
+        # GitHub API. Without a GitHub origin there is no way to fetch it,
+        # and computing the window anyway would zero that quarter silently -
+        # row 34, exactly. Every other tool here refuses with a reason; this
+        # line used to raise AttributeError on .group(1) and hand the
+        # operator a traceback instead.
+        sys.exit(
+            "refusing to compute shares: `origin` is not a GitHub remote, so "
+            "review and merge credit cannot be fetched.\n  origin = " +
+            (remote or "(none)") + "\nThat is " +
+            str(int(Decimal(str(weights["review"])) * 100)) + "% of the weight; "
+            "computing without it would silently score it zero for everyone.")
+    owner_repo = m.group(1)
     prs = api_paged(API + "/repos/" + owner_repo + "/pulls?state=all&per_page=100")
     for pr in prs:
         merged_at = (pr.get("merged_at") or "")[:10]

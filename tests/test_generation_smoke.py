@@ -1622,3 +1622,64 @@ def test_every_world_dependent_guard_declares_its_premise():
     for row in ep.PREMISES:
         assert "def " + row["guard"] + "(" in tests, (
             "the registry cites %s, which no longer exists" % row["guard"])
+def test_attribution_refuses_the_mold(generated):
+    """Row 65. Operator rule #10, in the tool that decides money.
+
+    anchor, drift_check, verify_signatures and doctor all refuse a mold.
+    attribution did not, and run in the template it produced a complete,
+    ratifiable window for `github-handle` - with an objection deadline and
+    the words "silence = ratification". A revenue split naming a member who
+    does not exist, and nothing downstream can tell that file from a real
+    one.
+
+    Asserted on the message and on BOTH directions: a guard that only
+    checked the refusal would pass just as well against a tool that refused
+    every repository, which would be a worse bug than the one being fixed.
+    """
+    code, out = _run_attr(generated)
+    assert code != 0, "attribution computed a window for the mold:\n" + out
+    assert "rule #10" in out and "placeholder" in out, out
+    assert "silence = ratification" not in out, (
+        "it refused and still emitted a ratifiable window:\n" + out)
+
+    # ...and the moment the repo becomes a syndicate, THIS refusal must stop.
+    # Asserted on the reason rather than on exit 0: the fixture's origin is a
+    # local bare repo and the GitHub API is not reachable from the suite, so a
+    # provisioned run legitimately stops for other reasons. What must not
+    # survive provisioning is the mold refusal itself.
+    provision(generated)
+    git("add", "-A", cwd=generated)
+    git("commit", "-q", "-m", "provisioned", cwd=generated)
+    code, out = _run_attr(generated)
+    assert "rule #10" not in out and "placeholder member row" not in out, (
+        "attribution still calls a provisioned syndicate a mold - the guard "
+        "is refusing everything, not just molds:\n" + out)
+    assert "Traceback" not in out, (
+        "a provisioned syndicate got a traceback instead of a named refusal:\n"
+        + out)
+
+
+def test_attribution_refuses_a_non_github_origin(generated):
+    """Row 66, found by the OTHER half of row 65's guard.
+
+    Review and merge credit is 25% of the weight and comes from the GitHub
+    API. With a non-GitHub origin - GitLab, self-hosted, a local path, or
+    this suite's own bare fixture - the owner/repo regex returned None and
+    `.group(1)` raised AttributeError. An operator got a traceback where
+    every other tool in this repository gives a named refusal, and the
+    alternative (compute anyway) is row 34: silently scoring a quarter of
+    the weight zero for everyone.
+    """
+    provision(generated)
+    code, out = _run_attr(generated)
+    assert code != 0, out
+    assert "not a GitHub remote" in out, out
+    assert "Traceback" not in out, "still a crash, not a refusal:\n" + out
+    assert "25%" in out, (
+        "the refusal does not say how much of the weight is at stake:\n" + out)
+
+
+def _run_attr(repo):
+    r = subprocess.run([sys.executable, str(TOOLS / "attribution.py"),
+                        "--repo", str(repo)], text=True, capture_output=True)
+    return r.returncode, r.stdout + r.stderr

@@ -1,0 +1,37 @@
+{
+  "clock": "committer dates; push-time gating is the admissible clock per 4.2 (v1 limitation)",
+  "generated_at": "2026-09-20T23:37:55Z",
+  "members": [
+    {
+      "email": "ID+handle@users.noreply.github.com",
+      "github": "github-handle",
+      "joined": "YYYY-MM-DD",
+      "keys": [],
+      "name": "Full Name",
+      "orcid": "0000-0000-0000-0000",
+      "role": "theory",
+      "trust_tier": "verified"
+    }
+  ],
+  "objection_deadline": "2026-09-27T23:37:55Z",
+  "raw": {
+    "github-handle": {
+      "churn_w": "0",
+      "files": [],
+      "merges": 0,
+      "reviews": 0
+    }
+  },
+  "survivor_weight": "0.3",
+  "weights_used": {
+    "breadth": "0.25",
+    "churn": "0.4375",
+    "review": "0.3125"
+  },
+  "window": {
+    "end": "2026-09-21",
+    "label": "2026-W39",
+    "start": "2026-09-15"
+  },
+  "window_head": "5141e6d674b5ebe4b35daf81ffdbe80b84e83664"
+}
