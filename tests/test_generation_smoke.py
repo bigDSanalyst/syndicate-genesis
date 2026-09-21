@@ -1946,3 +1946,61 @@ def test_a_broken_ots_install_is_not_a_network_problem(generated, tmp_path,
         % (state, r.returncode, expect_code, out[-1200:]))
     if state == "dead_shebang":
         assert "not a network problem" in out, out
+
+
+@pytest.mark.parametrize("cmd,expect", [("run", 0), ("upgrade", 2)])
+def test_run_and_upgrade_answer_different_questions_without_ots(generated, tmp_path,
+                                                                cmd, expect):
+    """Row 74. The regression that passed on every machine that had ots.
+
+    `run` is asked to RECORD an anchor. Stamping is best-effort and
+    explicitly deferred, so a machine without ots still did what it was asked
+    - the entry exists, marked unsubmitted, and stale_unsubmitted() escalates
+    it to exit 1 if it stays that way past the window. That escalation is the
+    real guard and it already existed.
+
+    `upgrade` is asked to FIND OUT whether anchors confirmed. A run that
+    could not look has failed at its only job, so exit 2.
+
+    Row 62's fix gave both commands upgrade's discipline. Every machine with
+    ots installed - mine, CI - kept passing, and the suite went red the first
+    time it ran somewhere ots was absent. The environment WAS the test case,
+    and nothing was pinning it.
+    """
+    provision(generated)
+    if cmd == "upgrade":
+        # upgrade needs something to be unable to check. With an empty log it
+        # correctly exits 0 - nothing unchecked - and the assertion would be
+        # measuring an empty set rather than the behaviour under test.
+        log = generated / "ledger" / "anchors"
+        log.mkdir(parents=True, exist_ok=True)
+        (log / "0001-x.json").write_text('{"a":1}', encoding="utf-8")
+        (log / "0001-x.json.ots").write_text("stub", encoding="utf-8")
+        (log / "log.jsonl").write_text(json.dumps({
+            "seq": 1, "anchor_id": "0001-x",
+            "manifest": "ledger/anchors/0001-x.json",
+            "manifest_sha256": "0" * 64, "status": "pending",
+            "created": "2099-01-01T00:00:00Z"}) + "\n", encoding="utf-8")
+
+    bindir = tmp_path / ("noots_" + cmd)
+    bindir.mkdir(parents=True, exist_ok=True)
+    (bindir / "git").symlink_to(shutil.which("git"))
+
+    r = subprocess.run([sys.executable, str(TOOLS / "anchor.py"), cmd,
+                        "--repo", str(generated)], text=True,
+                       capture_output=True, env={"PATH": str(bindir)}, timeout=180)
+    out = r.stdout + r.stderr
+    assert r.returncode == expect, (
+        "`anchor.py %s` with no ots exited %d, expected %d.\n"
+        "  run     records an entry; the stamp is deferred and staleness "
+        "escalates it later, so this is success.\n"
+        "  upgrade exists to check; unable to check is not success.\n%s"
+        % (cmd, r.returncode, expect, out[-1200:]))
+
+    if cmd == "run":
+        log = generated / "ledger" / "anchors" / "log.jsonl"
+        assert log.exists(), "run exited 0 without recording anything:\n" + out
+        entry = json.loads(log.read_text(encoding="utf-8").splitlines()[0])
+        assert entry["status"] == "unsubmitted", (
+            "run exited 0 and marked the entry %r - an unstamped anchor must "
+            "stay unsubmitted so staleness can escalate it" % entry["status"])
