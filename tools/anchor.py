@@ -399,17 +399,28 @@ def main():
             "syndicate. Anchoring here writes a chain that every generated repo\n"
             "inherits (operator rule #10). Edit the manifest with real members\n"
             "first; the workflow itself is already proven by its run history.")
+    # `run` and `upgrade` are asked different questions and must not share an
+    # exit discipline. `run` is asked to RECORD an anchor; stamping is
+    # best-effort and explicitly deferred, so a machine with no ots still
+    # succeeded at what it was asked - the entry exists, marked unsubmitted,
+    # and stale_unsubmitted() below escalates it to exit 1 if it stays that
+    # way past the window. `upgrade` is asked to FIND OUT whether anchors
+    # confirmed, so a run that could not look has failed at its only job.
+    #
+    # Row 74: giving `run` upgrade's discipline made it exit 2 wherever ots
+    # is not installed - true of Colab, where the suite failed while passing
+    # on every machine that happened to have it.
     unchecked = 0
     if args.command == "run":
         make_anchor(repo, anchors_dir, log_path)
-        unchecked = ensure_stamps(repo, log_path)
+        ensure_stamps(repo, log_path)
     elif args.command == "upgrade":
         unchecked = ensure_stamps(repo, log_path)
     elif args.command == "milestone":
         if not (args.tag and args.message):
             sys.exit("milestone requires --tag and --message")
         milestone(repo, anchors_dir, log_path, args.tag, args.message)
-        unchecked = ensure_stamps(repo, log_path)
+        ensure_stamps(repo, log_path)
     elif args.command == "verify":
         return 0 if verify(repo, log_path) else 1
     stale = stale_unsubmitted(log_path)
