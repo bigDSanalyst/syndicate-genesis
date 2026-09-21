@@ -1854,3 +1854,37 @@ def test_the_published_csv_sums_to_one(generated, tmp_path):
         "the published attribution.csv sums to %s, not 1 - the file that gets "
         "ratified either loses revenue or promises revenue that does not "
         "exist:\n%s" % (total, "\n".join(body)))
+
+
+def test_the_findings_ledger_numbering_is_sound():
+    """Row 72. The ledger is cited by number, so the numbers must mean one thing.
+
+    Resolving two merge conflicts in FINDINGS.md left rows 67, 68 and 69
+    present twice on main - byte-identical, consecutive, invisible. The
+    resolution emitted every row from both sides in numeric order and then
+    kept the text following the conflict marker, which in the second merge
+    still contained those rows.
+
+    What makes this a guard rather than a fix: the resolution WAS verified.
+    It was verified for GAPS - "rows 1-69, no gaps" - and a gap is precisely
+    the failure that does not occur when you duplicate. The check ran, the
+    check passed, and the check was looking the other way.
+
+    Rows are cited by number in commit messages, PR bodies, code comments and
+    the README. A duplicate makes two claims resolve to one citation; a gap
+    makes a citation resolve to nothing.
+    """
+    text = (TEMPLATE / "FINDINGS.md").read_text(encoding="utf-8")
+    nums = [int(n) for n in re.findall(r"(?m)^\| (\d+) \|", text)]
+    assert nums, "no findings rows parsed - the guard is looking at the wrong shape"
+
+    dupes = sorted({n for n in nums if nums.count(n) > 1})
+    assert not dupes, "findings rows appear more than once: %s" % dupes
+
+    gaps = [i for i in range(1, max(nums) + 1) if i not in set(nums)]
+    assert not gaps, ("findings numbering has holes at %s - a citation to one "
+                      "of these resolves to nothing" % gaps)
+
+    assert nums == sorted(nums), (
+        "findings rows are out of order; first descent at %s"
+        % next("%d->%d" % (a, b) for a, b in zip(nums, nums[1:]) if b < a))
