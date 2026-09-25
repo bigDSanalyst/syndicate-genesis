@@ -112,9 +112,13 @@ sys.path.insert(0, %(tools)r)
 fault = %(fault)r
 
 # The retry LOGIC is under test; the wall clock is not. Tools back off
-# exponentially by design (correct behaviour), which would make this matrix
-# take hours and get it disabled - and a disabled guard is no guard. Sleep
-# is neutralised, every retry still happens, every decision is still made.
+# exponentially by design - correct behaviour, and ruinous here. Measured,
+# not estimated: the same 75 cases on the same machine took 1944s (32m24s)
+# with real sleeps and 6.8s without. 286x. A half-hour guard gets run once,
+# then moved to a nightly, then disabled - and a disabled guard is no guard,
+# which is the failure this whole file exists to prevent, arriving by the
+# side door. Every retry still happens and every decision is still made;
+# only the waiting is gone.
 time.sleep = lambda *a, **k: None
 
 import faultkit
