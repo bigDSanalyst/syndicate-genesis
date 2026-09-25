@@ -1051,6 +1051,50 @@ def test_a_solo_window_gives_the_only_member_everything(generated, monkeypatch):
     assert float(shares["realmember"]) == 1.0, "solo share was not whole: %r" % shares
 
 
+def _zoned_window(repo, monkeypatch, commits, bounds=()):
+    """Run a window over `commits` = [(email, filename, ISO time with zone)]."""
+    two_members(repo)
+    mod, _ = _run_attribution(repo, monkeypatch, [])           # lands the setup commit
+    shutil.rmtree(repo / "ledger" / "windows")
+    for email, name, stamp in commits:
+        (repo / "vault" / "20-notes" / name).write_text("x" * 40, encoding="utf-8")
+        git("add", "-A", cwd=repo)
+        env = dict(os.environ, GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=stamp)
+        subprocess.run(["git", "-c", "user.name=M", "-c", "user.email=" + email, "commit",
+                        "-q", "-m", "work " + name], cwd=repo, env=env, check=True)
+    monkeypatch.setattr(sys, "argv", ["attribution.py", "--repo", str(repo), *bounds])
+    mod.main()
+    csv, = (repo / "ledger" / "windows").rglob("attribution.csv")
+    return {ln.split(",")[0]: ln.split(",")[-1]
+            for ln in csv.read_text(encoding="utf-8").splitlines()[1:]}
+
+
+def test_a_window_counts_commits_by_their_utc_day(generated, monkeypatch):
+    """A committer's time zone must not move work between windows (row 75).
+
+    `git log --date=short` prints each commit's date in its committer's own
+    zone. The same instant - 20:00 UTC on the 7th - is the 7th for a member
+    committing from UTC and the 8th for one committing from UTC+10, so a window
+    ending on the 7th counted the first and silently dropped the second.
+    """
+    shares = _zoned_window(generated, monkeypatch, [
+        ("1+alpha@users.noreply.github.com", "a.md", "2026-09-08T06:00:00+10:00"),
+        ("2+beta@users.noreply.github.com", "b.md", "2026-09-07T20:00:00+00:00")],
+        ("--since", "2026-09-01", "--until", "2026-09-07"))
+    assert shares["alpha"] == shares["beta"] != "0.0000", \
+        "the same instant counted differently by committer time zone: %r" % shares
+
+
+def test_default_window_bounds_use_the_same_utc_days(generated, monkeypatch):
+    """With no --since, the window starts at the earliest commit's day - which
+    must be computed on the same clock that selects commits. Otherwise a
+    +10:00 commit opens the window on its local day, then falls out of it on
+    its UTC day, and the earliest work in the repository scores zero."""
+    shares = _zoned_window(generated, monkeypatch, [
+        ("1+alpha@users.noreply.github.com", "a.md", "2026-09-08T06:00:00+10:00")])
+    assert shares["alpha"] == "1.0000", "the earliest commit fell outside its own window: %r" % shares
+
+
 # ────────────────────────── supply chain & record ────────────────────────
 def test_citation_file_makes_no_identifier_it_cannot_back(generated):
     """A placeholder ORCID in a citation file resolves to nothing and reads as a

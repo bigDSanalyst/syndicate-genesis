@@ -52,6 +52,11 @@ def q(d: Decimal, places: int) -> Decimal:
     return dec(d).quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_EVEN)
 
 
+def utc_day(timestamp):
+    """YYYY-MM-DD, in UTC, of a git %ct timestamp."""
+    return datetime.fromtimestamp(int(timestamp), timezone.utc).date().isoformat()
+
+
 def sh(*args, cwd):
     r = subprocess.run(args, cwd=cwd, text=True, capture_output=True)
     if r.returncode != 0:
@@ -176,7 +181,10 @@ def main():
     mem_by_email = {m["email"]: m for m in members}
     mem_by_login = {m["github"]: m for m in members}
     head_tree = set(sh("git", "ls-tree", "-r", "--name-only", "HEAD", cwd=repo).splitlines())
-    dates = sh("git", "log", "--pretty=format:%cd", "--date=short", "HEAD", cwd=repo).splitlines()
+    # Days are UTC. `--date=short` printed each commit's date in its committer's
+    # own zone, so one window mixed +10:00 days with UTC ones and the same
+    # instant could land in different windows depending on who made it (row 75).
+    dates = [utc_day(t) for t in sh("git", "log", "--pretty=format:%ct", "HEAD", cwd=repo).split()]
     start = args.since or min(dates)
     end = args.until or max(dates)
     if start > end:
@@ -184,14 +192,14 @@ def main():
     label = args.label or "{}-W{:02d}".format(*date.fromisoformat(end).isocalendar()[:2])
     churn = {m["email"]: ZERO for m in members}
     files = {m["email"]: set() for m in members}
-    log = sh("git", "log", "--pretty=format:%H|%an|%ae|%cd", "--date=short", "--numstat", "HEAD", cwd=repo)
+    log = sh("git", "log", "--pretty=format:%H|%an|%ae|%ct", "--numstat", "HEAD", cwd=repo)
     cur = None
     for ln in log.splitlines():
         if not ln.strip():
             continue
         fields = ln.split("|")
         if len(fields) == 4 and len(fields[0]) == 40:
-            an, ae, cd = fields[1].strip(), fields[2].strip(), fields[3].strip()
+            an, ae, cd = fields[1].strip(), fields[2].strip(), utc_day(fields[3].strip())
             cur = ((aliases[ae], cd) if (ae in aliases and start <= cd <= end
                                          and not excluded(an, ae)) else None)
         elif cur is not None and ln.count("\t") == 2:
@@ -263,7 +271,7 @@ def main():
         g = m["github"]
         rows.append(",".join(str(v) for v in [g, m["email"], q(churn[m["email"]], 1), len(files[m["email"]]), reviews[g], merges[g], q(A[m["email"]], 4), q(B[m["email"]], 4), int(R[g]), q(x[g], 5), published[g]]))
     (out_dir / "attribution.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
-    evidence = {"window": {"label": label, "start": start, "end": end}, "members": members, "weights_used": {"churn": str(wc / tw), "breadth": str(wb / tw), "review": str(wr / tw)}, "raw": {m["github"]: {"churn_w": str(churn[m["email"]]), "files": sorted(files[m["email"]]), "reviews": reviews[m["github"]], "merges": merges[m["github"]]} for m in members}, "survivor_weight": str(SURVIVOR_WEIGHT), "clock": "committer dates; push-time gating is the admissible clock per 4.2 (v1 limitation)", "generated_at": now_s, "objection_deadline": deadline, "window_head": sh("git", "rev-parse", "HEAD", cwd=repo)}
+    evidence = {"window": {"label": label, "start": start, "end": end}, "members": members, "weights_used": {"churn": str(wc / tw), "breadth": str(wb / tw), "review": str(wr / tw)}, "raw": {m["github"]: {"churn_w": str(churn[m["email"]]), "files": sorted(files[m["email"]]), "reviews": reviews[m["github"]], "merges": merges[m["github"]]} for m in members}, "survivor_weight": str(SURVIVOR_WEIGHT), "clock": "committer dates, as UTC days; push-time gating is the admissible clock per 4.2 (v1 limitation)", "generated_at": now_s, "objection_deadline": deadline, "window_head": sh("git", "rev-parse", "HEAD", cwd=repo)}
     (out_dir / "evidence.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print("window", label, start, "->", end)
     for ln in rows: print(ln)
