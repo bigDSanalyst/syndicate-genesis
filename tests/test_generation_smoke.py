@@ -1576,6 +1576,48 @@ def test_an_unreachable_calendar_is_not_a_pending_anchor(generated, tmp_path):
     assert "not yet in a Bitcoin block" in out, out
 
 
+def _unsubmitted_anchor(repo):
+    log = repo / "ledger" / "anchors"
+    log.mkdir(parents=True, exist_ok=True)
+    (log / "0001-x.json").write_text('{"a":1}', encoding="utf-8")
+    (log / "log.jsonl").write_text(json.dumps({
+        "seq": 1, "anchor_id": "0001-x", "manifest": "ledger/anchors/0001-x.json",
+        "manifest_sha256": "0" * 64, "status": "unsubmitted",
+        "created": "2099-01-01T00:00:00Z"}) + "\n", encoding="utf-8")
+
+
+def test_upgrade_that_cannot_submit_an_anchor_does_not_report_success(generated, tmp_path):
+    """Row 76. Row 62 made `upgrade` honest about anchors it could not
+    confirm, but only for anchors that already had a .ots file. An anchor
+    never submitted takes the other branch: `upgrade` tries `ots stamp`, and
+    when no calendar answered it printed "stamp failed" and exited 0 - a
+    green run meaning "I could not submit", the same lie through the other
+    door. It is transient, so exit 2; a broken install is not, so exit 1."""
+    provision(generated)
+    _unsubmitted_anchor(generated)
+    unreachable = _ots_shim(tmp_path, (
+        'echo "Calendar https://alice.btc.calendar.opentimestamps.org: '
+        'Tunnel connection failed: 403 Forbidden" >&2\n'
+        'exit 1'))
+    code, out = _run_anchor(generated, unreachable, "upgrade")
+    assert code == 2, "an anchor nobody could submit exited %d:\n%s" % (code, out)
+    assert "could not reach" in out, out
+
+    dead = tmp_path / "deadbin"
+    dead.mkdir()
+    (dead / "ots").write_text("#!/nonexistent/interpreter\n", encoding="utf-8")
+    (dead / "ots").chmod(0o755)
+    # Only the broken shim on PATH: exec of a dead shebang fails with ENOENT,
+    # and execvp then quietly tries the next `ots` on PATH - a real one would
+    # run against the real network and this case would test nothing.
+    env = {"PATH": str(dead), "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")}
+    r = subprocess.run([sys.executable, str(TOOLS / "anchor.py"), "upgrade",
+                        "--repo", str(generated)], text=True, capture_output=True, env=env)
+    assert r.returncode == 1, ("a broken ots install is not transient, and it exited %d:\n%s"
+                               % (r.returncode, r.stdout + r.stderr))
+    assert "will not run" in r.stdout + r.stderr, r.stdout + r.stderr
+
+
 def test_upgrade_without_the_ots_cli_does_not_report_success(generated, tmp_path):
     """Same failure, second door. With no `ots` on PATH the tool printed its
     'stamps deferred' line and exited 0 - and a workflow reads the exit code,

@@ -270,9 +270,20 @@ def ensure_stamps(repo, log_path):
                 changed = True
                 info = parse_info(info_for(ots))
                 print("submitted #" + format(e["seq"], "04d") + " (digest " + (info["digest"] or "?")[:12] + ")")
+            elif BROKEN_INSTALL in (r.stderr or ""):
+                broken.append(format(e["seq"], "04d"))
             else:
-                tail = (r.stderr or r.stdout or "").strip().splitlines()
-                print("stamp failed #" + format(e["seq"], "04d") + ": " + (tail[-1] if tail else "unknown"))
+                # Row 76: an anchor that could not be submitted is one this run
+                # established nothing about, exactly like one it could not
+                # upgrade (row 62). Printing "stamp failed" and exiting 0 was
+                # that lie through the other door.
+                answered, problem = calendars_answered(r)
+                if answered:
+                    tail = (r.stderr or r.stdout or "").strip().splitlines()
+                    problem = tail[-1] if tail else "ots stamp failed with no output"
+                unchecked += 1
+                print("unsubmitted #" + format(e["seq"], "04d") + " - could not reach the "
+                      "calendars to submit it (" + problem + ")")
         elif e["status"] != "confirmed":
             r = run_ots("upgrade", str(ots))
             answered, problem = calendars_answered(r)
